@@ -1,0 +1,157 @@
+# Production stack on SV14 (192.168.2.114, 4 GB RAM).
+# Local-password auth (no Authentik) — pre-seeded whitelist.
+#
+# Memory budget (3.8 GB available, leave ~600 MB for host):
+#   postgres   512M (app DB)
+#   redis      128M (LRU 96M)
+#   backend    512M
+#   worker     384M
+#   frontend   512M
+#   wetty      128M
+#   ────────── ────
+#   total      ~2.2 GB committed → much more headroom than before
+
+name: vju-lab-portal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    mem_swappiness: 10
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    mem_reservation: 64m
+    mem_swappiness: 10
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+
+  backend:
+    image: ${BACKEND_IMAGE:-vju-lab-portal-backend:latest}
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    mem_swappiness: 10
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CORS_ALLOWED_ORIGINS: '["https://${PUBLIC_HOSTNAME}"]'
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_ssh_keys:/app/ssh-keys
+    networks:
+      - internal
+      - lan
+    ports:
+      - "0.0.0.0:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    image: ${BACKEND_IMAGE:-vju-lab-portal-backend:latest}
+    restart: unless-stopped
+    mem_limit: 384m
+    mem_reservation: 192m
+    mem_swappiness: 10
+    command: ["rq", "worker", "--with-scheduler", "--url", "redis://:${REDIS_PASSWORD}@redis:6379/0", "default"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, redis; redis.from_url(os.environ['REDIS_URL']).ping()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_ssh_keys:/app/ssh-keys
+    networks:
+      - internal
+      - lan
+    depends_on:
+      backend:
+        condition: service_started
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-vju-lab-portal-frontend:latest}
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    mem_swappiness: 10
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: https://${PUBLIC_HOSTNAME}/api
+      NEXT_PUBLIC_DOMAIN: ${PUBLIC_HOSTNAME}
+    networks:
+      - internal
+      - lan
+    ports:
+      - "0.0.0.0:3000:3000"
+    depends_on:
+      backend:
+        condition: service_started
+
+  wetty:
+    image: wettyoss/wetty:latest
+    restart: unless-stopped
+    mem_limit: 128m
+    mem_reservation: 64m
+    mem_swappiness: 10
+    command: --base /term/ --port 3000 --allow-iframe true
+    networks:
+      - internal
+      - lan
+    ports:
+      - "0.0.0.0:3001:3000"
+
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  lan:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_uploads:
+  backend_ssh_keys:

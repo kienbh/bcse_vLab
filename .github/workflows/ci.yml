@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend (lint + test)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: labportal_test
+          POSTGRES_USER: labportal
+          POSTGRES_PASSWORD: testpw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U labportal"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+      - name: Lint
+        working-directory: backend
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://labportal:testpw@localhost:5432/labportal_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci_test_jwt_secret_with_more_than_64_chars_to_pass_validation_xxxxxxx
+        run: pytest
+
+  frontend:
+    name: Frontend (lint + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+      - name: Lint + typecheck
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm run typecheck
+      - name: Build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000/api
+        run: npm run build
+
+  gitleaks:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

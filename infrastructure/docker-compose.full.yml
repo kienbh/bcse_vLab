@@ -1,0 +1,62 @@
+# Full-stack compose — frontend + backend + postgres + redis.
+# Used in CI smoke test and as a sanity boot before deploying to SV14.
+
+name: vju-lab-portal-full
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-labportal}
+      POSTGRES_USER: ${POSTGRES_USER:-labportal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-labportal}"]
+      interval: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-changeme_redis_password}", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-labportal}:${POSTGRES_PASSWORD:-changeme_dev_password}@postgres:5432/${POSTGRES_DB:-labportal}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme_redis_password}@redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:

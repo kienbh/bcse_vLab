@@ -1,0 +1,54 @@
+# Local-dev compose. Brings up postgres + redis only — frontend & backend
+# run on the host (npm run dev / uvicorn) so hot-reload is fast.
+# For full-stack containerized boot, use `docker-compose.full.yml`.
+
+name: vju-lab-portal-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: labportal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-labportal}
+      POSTGRES_USER: ${POSTGRES_USER:-labportal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-labportal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: labportal-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-changeme_redis_password}", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme_redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  adminer:
+    image: adminer:4
+    container_name: labportal-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
