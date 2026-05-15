@@ -1,5 +1,38 @@
 # 04 — Database Schema
 
+> **⚠️ Source of truth = SQLAlchemy models, không phải file này.**
+>
+> Tài liệu này là thiết kế ban đầu trước M1. Khi implement (migration `0001` ngày
+> 2026-05-08 + `0002` add local password auth), schema thực tế đã lệch ở vài chỗ.
+> Trước khi dựa vào DDL trong doc này hãy đọc `backend/app/models/*.py` (là
+> snapshot live của schema) và migrations trong `backend/migrations/versions/`.
+>
+> **Các khác biệt đáng kể đã biết** (rà 2026-05-15):
+>
+> | Bảng | Doc viết | Thực tế trong models/migration |
+> |---|---|---|
+> | `users` | không có `password_hash`, `must_change_password` | có (migration 0002 sau khi drop OIDC) |
+> | `users` | có `username VARCHAR(64) UNIQUE` | **không có** — login bằng email |
+> | `users` | `oidc_subject` field | vẫn có nhưng dead — luồng auth dùng password |
+> | `devices` | có `description`, `location`, `last_seen_at` | **không có** — thay bằng `model VARCHAR(128)` + `notes VARCHAR(500)` |
+> | `devices.device_type` | `VARCHAR(32)` | Postgres ENUM `device_type` |
+> | `devices.status` | `VARCHAR(20)` | Postgres ENUM `device_status` |
+> | `plug_mappings` | `id UUID PK` riêng | `device_id` chính là PK (1:1) |
+> | `plug_mappings.plug_type` | `VARCHAR(32)` | Postgres ENUM `plug_type` |
+> | `plug_mappings.plug_relay_index` | default `0` | default `1` |
+> | `plug_mappings` | có `last_action_at`, `last_action_by` | **không có** — query audit_logs thay |
+> | `audit_logs.user_id` | tên này | thực tế **`actor_id`** |
+> | `audit_logs.resource_type` / `resource_id` | tên này | thực tế **`target_type`** / **`target_id`** |
+> | `audit_logs` | có `actor_role`, `error_message` | **không có** |
+> | `audit_logs` | dùng `BIGSERIAL PRIMARY KEY` + `idx_audit_user_time` | `BigInteger autoincrement` + index `ix_audit_action_ts` |
+> | `device_credentials.encrypted_admin_key` | `TEXT` | `BYTEA` (LargeBinary) |
+> | UUID default | `gen_random_uuid()` | `uuid_generate_v4()` (uuid-ossp extension) |
+>
+> Các phần còn lại của doc (`classes`, `enrollments`, `class_device_assignments`,
+> `special_access`, `bookings` + GIST EXCLUDE, `sessions`, `user_quotas`,
+> `audit_logs` ý tưởng cốt lõi) vẫn match concept. Update doc đầy đủ là việc
+> trong Milestone 7 polish phase, không phải priority hiện tại.
+
 ## ERD tổng quan
 
 ```
