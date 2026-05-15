@@ -1,0 +1,457 @@
+"use client";
+
+import {
+  Activity,
+  Calendar,
+  Loader2,
+  Power,
+  Radio,
+  Sparkles,
+  Terminal,
+  Wifi,
+  WifiOff,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+
+const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
+
+export type DeviceFamily = "fpga" | "jetson" | "rpi";
+
+export type Device = {
+  id: string;
+  name: string;
+  device_type:
+    | "fpga_kv260"
+    | "jetson_nano"
+    | "jetson_orin"
+    | "rpi4"
+    | "rpi5";
+  model: string;
+  status: "available" | "in_use" | "maintenance" | "offline";
+  capabilities: Record<string, unknown>;
+};
+
+export type LiveStatus = {
+  device_id: string;
+  checked_at: string;
+  ssh_host: string;
+  ssh_port: number;
+  reachable: boolean;
+  latency_ms: number | null;
+  db_status: Device["status"];
+  current_booking: {
+    booking_id: string;
+    user_name: string;
+    user_email: string | null;
+    student_code: string | null;
+    start_time: string;
+    end_time: string;
+  } | null;
+  is_my_booking: boolean;
+  next_booking: { start_time: string; end_time: string } | null;
+  has_plug: boolean;
+};
+
+type DerivedState = "available" | "occupied" | "offline" | "maintenance";
+
+function deriveState(d: Device, live: LiveStatus | null): DerivedState {
+  if (d.status === "maintenance") return "maintenance";
+  if (live && !live.reachable) return "offline";
+  if (d.status === "offline" && !live?.reachable) return "offline";
+  if (live?.current_booking) return "occupied";
+  if (d.status === "in_use") return "occupied";
+  return "available";
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function fmtDate(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
+}
+
+function remainingMs(endIso: string): number {
+  return new Date(endIso).getTime() - Date.now();
+}
+
+function fmtRemaining(ms: number): string {
+  if (ms <= 0) return "đã hết";
+  const totalMin = Math.floor(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h <= 0) return `${m} phút`;
+  return `${h}h ${m.toString().padStart(2, "0")}m`;
+}
+
+export type FamilyTheme = {
+  badge: string;
+  accent: string;
+  available: string;
+  occupied: string;
+  offline: string;
+  maintenance: string;
+};
+
+const THEMES: Record<DeviceFamily, FamilyTheme> = {
+  fpga: {
+    badge: "FPGA",
+    accent: "from-vju-500 to-vju-700",
+    available:
+      "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
+    occupied:
+      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+    offline:
+      "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
+    maintenance:
+      "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
+  },
+  jetson: {
+    badge: "JETSON",
+    accent: "from-emerald-500 to-teal-700",
+    available:
+      "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
+    occupied:
+      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+    offline:
+      "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
+    maintenance:
+      "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
+  },
+  rpi: {
+    badge: "RPI",
+    accent: "from-rose-500 to-pink-700",
+    available:
+      "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
+    occupied:
+      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+    offline:
+      "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
+    maintenance:
+      "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
+  },
+};
+
+const STATE_LABEL: Record<DerivedState, { vi: string; subtitle: string }> = {
+  available: { vi: "Đang trống", subtitle: "Sẵn sàng — bấm để đặt ngay" },
+  occupied: { vi: "Đang được dùng", subtitle: "Bị nhóm khác chiếm slot" },
+  offline: { vi: "Mất kết nối", subtitle: "Không ping được SSH" },
+  maintenance: { vi: "Bảo trì", subtitle: "Admin đang bảo trì kit" },
+};
+
+export interface DeviceCardProps {
+  device: Device;
+  family: DeviceFamily;
+  onBook: (device: Device) => void;
+  onConnect?: (device: Device, bookingId: string) => void;
+}
+
+export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProps) {
+  const [live, setLive] = useState<LiveStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [tick, setTick] = useState(0); // re-render every 30s for countdown
+
+  const poll = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/devices/${device.id}/live-status`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (r.ok) {
+        setLive(await r.json());
+        setError(null);
+      } else {
+        setError(`HTTP ${r.status}`);
+      }
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [device.id]);
+
+  useEffect(() => {
+    poll();
+    const id = setInterval(poll, 8000);
+    return () => clearInterval(id);
+  }, [poll]);
+
+  // Tick every 30s so the "X phút còn lại" countdown updates live
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const state = deriveState(device, live);
+  const theme = THEMES[family];
+  const gradient = theme[state];
+
+  const resetPlug = async () => {
+    if (!confirm(`Reset nguồn ${device.name}? Kit sẽ tắt 5 giây rồi bật lại.`)) return;
+    setResetting(true);
+    setResetMsg(null);
+    try {
+      const r = await fetch(`${API}/devices/${device.id}/reset`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setResetMsg(
+          data.powered_on
+            ? "✓ Đã power-cycle, kit đang khởi động lại."
+            : "✓ Đã gửi lệnh reset.",
+        );
+        // Refresh status quickly after reset
+        setTimeout(poll, 1500);
+      } else {
+        const code = data?.detail?.code ?? "ERROR";
+        setResetMsg(
+          code === "NO_PLUG_MAPPED"
+            ? "× Kit chưa gán smart plug — chưa reset được từ xa."
+            : code === "NOT_CURRENT_BOOKER"
+              ? "× Chỉ người đang chiếm slot mới reset được."
+              : `× Lỗi: ${code}`,
+        );
+      }
+    } catch (e) {
+      setResetMsg(`× ${String(e)}`);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const isOwner = live?.is_my_booking ?? false;
+  const current = live?.current_booking;
+  const remainingForOwner =
+    isOwner && current ? fmtRemaining(remainingMs(current.end_time)) : null;
+  void tick;
+
+  return (
+    <div className="surface relative flex flex-col overflow-hidden p-0">
+      {/* Big gradient banner shows state at a glance */}
+      <div
+        className={`relative bg-gradient-to-br ${gradient} px-5 py-4 text-white shadow-md transition`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+              {theme.badge} · {device.name}
+            </p>
+            <p className="mt-1 text-base font-bold leading-tight">
+              {device.model}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <span
+              className={`flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-bold uppercase backdrop-blur-sm ${
+                live === null
+                  ? "opacity-50"
+                  : live.reachable
+                    ? ""
+                    : "bg-rose-500/50"
+              }`}
+            >
+              {live === null ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : live.reachable ? (
+                <Wifi className="h-3 w-3" />
+              ) : (
+                <WifiOff className="h-3 w-3" />
+              )}
+              {live?.latency_ms != null
+                ? `${live.latency_ms.toFixed(0)}ms`
+                : live?.reachable
+                  ? "ok"
+                  : "—"}
+            </span>
+            {live && (
+              <span className="font-mono text-[10px] opacity-70">
+                {live.ssh_host}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <p className="text-2xl font-extrabold tracking-tight">
+            {STATE_LABEL[state].vi}
+          </p>
+          <p className="text-xs opacity-90">{STATE_LABEL[state].subtitle}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 p-5">
+        {/* Live ssh probe line */}
+        <div className="flex items-center justify-between rounded-md bg-slate-100 px-3 py-1.5 font-mono text-[11px] text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+          <span className="inline-flex items-center gap-1.5">
+            <Radio
+              className={`h-3 w-3 ${
+                live?.reachable
+                  ? "text-emerald-500"
+                  : "text-rose-500"
+              }`}
+            />
+            ssh {device.name}
+          </span>
+          <span className="text-slate-400">
+            {error
+              ? "err"
+              : live?.reachable
+                ? `${live.latency_ms?.toFixed(0) ?? "?"}ms · port ${live.ssh_port}`
+                : live === null
+                  ? "checking..."
+                  : "timeout"}
+          </span>
+        </div>
+
+        {/* Occupied panel — who has it + remaining time */}
+        {state === "occupied" && current && (
+          <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-amber-800 dark:text-amber-200">
+                {isOwner ? "Bạn đang chiếm slot" : current.user_name}
+              </span>
+              <span className="font-mono text-amber-700 dark:text-amber-300">
+                {fmtTime(current.start_time)}–{fmtTime(current.end_time)}
+              </span>
+            </div>
+            {isOwner && remainingForOwner && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                ⏱ Còn lại <strong>{remainingForOwner}</strong>
+              </p>
+            )}
+            {!isOwner && current.student_code && (
+              <p className="font-mono text-[11px] text-amber-700 dark:text-amber-300">
+                {current.student_code}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Next-slot hint when card is available */}
+        {state === "available" && live?.next_booking && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-900/50">
+            <p className="text-slate-500 dark:text-slate-400">
+              <Calendar className="mr-1 inline h-3 w-3" />
+              Slot tiếp theo: <strong className="text-slate-700 dark:text-slate-200">
+                {fmtDate(live.next_booking.start_time)} {fmtTime(live.next_booking.start_time)}
+              </strong>
+            </p>
+          </div>
+        )}
+
+        {/* Capabilities chips */}
+        {Object.keys(device.capabilities).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {Object.keys(device.capabilities)
+              .slice(0, 5)
+              .map((c) => (
+                <span
+                  key={c}
+                  className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                >
+                  {c}
+                </span>
+              ))}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="mt-1 flex flex-col gap-2">
+          {state === "available" && (
+            <button
+              type="button"
+              onClick={() => onBook(device)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+            >
+              <Sparkles className="h-4 w-4" />
+              ĐẶT SLOT NGAY
+            </button>
+          )}
+
+          {state === "occupied" && !isOwner && (
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            >
+              Kit đang được sử dụng
+            </button>
+          )}
+
+          {state === "occupied" && isOwner && (
+            <>
+              {onConnect && current && (
+                <button
+                  type="button"
+                  onClick={() => onConnect(device, current.booking_id)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-vju-500 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-vju-600"
+                >
+                  <Terminal className="h-4 w-4" />
+                  Mở terminal SSH
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={resetPlug}
+                disabled={resetting}
+                title={
+                  live?.has_plug
+                    ? "Power-cycle kit nếu bị treo"
+                    : "Kit chưa gán smart plug — nút sẽ báo lỗi"
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+              >
+                {resetting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Power className="h-4 w-4" />
+                )}
+                Reset nguồn
+              </button>
+            </>
+          )}
+
+          {state === "offline" && (
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            >
+              <WifiOff className="h-4 w-4" />
+              Không kết nối được
+            </button>
+          )}
+
+          {state === "maintenance" && (
+            <button
+              type="button"
+              disabled
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+            >
+              <Activity className="h-4 w-4" />
+              Đang bảo trì
+            </button>
+          )}
+
+          {resetMsg && (
+            <p
+              className={`text-[11px] ${
+                resetMsg.startsWith("✓")
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-rose-600 dark:text-rose-400"
+              }`}
+            >
+              {resetMsg}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
