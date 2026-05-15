@@ -47,3 +47,11 @@ class SessionStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     KICKED = "kicked"
+
+
+class ResetRequestStatus(StrEnum):
+    PENDING = "pending"        # waiting for admin/lecturer approval
+    APPROVED = "approved"      # decided OK — plug action queued
+    REJECTED = "rejected"      # decided NO — no plug action
+    COMPLETED = "completed"    # approved + plug power-cycled OK
+    FAILED = "failed"          # approved + plug error

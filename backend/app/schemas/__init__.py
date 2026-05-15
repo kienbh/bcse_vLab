@@ -11,6 +11,11 @@ from app.schemas.class_ import (
     SpecialAccessOut,
 )
 from app.schemas.device import DeviceCreate, DeviceOut, DeviceUpdate, PlugMappingIn
+from app.schemas.reset_request import (
+    ResetRequestCreate,
+    ResetRequestDecide,
+    ResetRequestOut,
+)
 from app.schemas.user import UserOut
 
 __all__ = [
@@ -29,4 +34,7 @@ __all__ = [
     "SpecialAccessOut",
     "BookingCreate",
     "BookingOut",
+    "ResetRequestCreate",
+    "ResetRequestDecide",
+    "ResetRequestOut",
 ]

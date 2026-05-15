@@ -6,7 +6,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app import __version__
-from app.api.routes import auth, bookings, classes, devices, events, health, reset, sessions
+from app.api.routes import (
+    auth,
+    bookings,
+    classes,
+    devices,
+    events,
+    health,
+    reset,
+    reset_requests,
+    sessions,
+)
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -52,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(bookings.router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")
     app.include_router(reset.router, prefix="/api")
+    app.include_router(reset_requests.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
 
     @app.get("/")

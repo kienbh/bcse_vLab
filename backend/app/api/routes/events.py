@@ -1,7 +1,9 @@
-"""Server-Sent Events stream — broadcasts device + session updates.
+"""Server-Sent Events stream — broadcasts device + reset-request updates.
 
 Per ADR-0009, SSE is the canonical real-time channel (not WebSocket).
-For M0/M1 we provide a heartbeat + bridge to Redis pub/sub (filled in M3+).
+Connects each authenticated client to the in-process event_bus and forwards
+queued events as SSE messages. Sends a `: keepalive` comment every 15s to
+prevent reverse-proxy idle timeouts.
 """
 from __future__ import annotations
 
@@ -15,26 +17,29 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
 from app.models import User
+from app.services import event_bus
 
 router = APIRouter(prefix="/events", tags=["events"])
 
 
-async def _heartbeat(request: Request, user: User) -> AsyncGenerator[str, None]:
-    """Stream `: keepalive` every 15s + `event: hello` once at connect.
-
-    Subsequent `event: device.status_changed` and `event: booking.update` will be
-    dispatched here in M3+ via Redis pub/sub bridge.
-    """
+async def _stream(request: Request, user: User) -> AsyncGenerator[str, None]:
+    sub = event_bus.subscribe(user)
     yield f"event: hello\ndata: {json.dumps({'user_id': str(user.id), 'role': user.role.value})}\n\n"
-    while True:
-        if await request.is_disconnected():
-            return
-        ts = datetime.now(timezone.utc).isoformat()
-        yield f": keepalive {ts}\n\n"
-        try:
-            await asyncio.sleep(15)
-        except asyncio.CancelledError:
-            return
+    try:
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                event, payload = await asyncio.wait_for(sub.queue.get(), timeout=15.0)
+                yield f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+            except asyncio.TimeoutError:
+                # Idle — send keepalive comment
+                ts = datetime.now(timezone.utc).isoformat()
+                yield f": keepalive {ts}\n\n"
+            except asyncio.CancelledError:
+                return
+    finally:
+        event_bus.unsubscribe(sub)
 
 
 @router.get("/stream")
@@ -43,7 +48,7 @@ async def stream(
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
     return StreamingResponse(
-        _heartbeat(request, user),
+        _stream(request, user),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

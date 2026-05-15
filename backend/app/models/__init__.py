@@ -11,10 +11,12 @@ from app.models.enums import (
     DeviceStatus,
     DeviceType,
     PlugType,
+    ResetRequestStatus,
     SessionStatus,
     UserRole,
 )
 from app.models.quota import UserQuota
+from app.models.reset_request import ResetRequest
 from app.models.user import User
 
 __all__ = [
@@ -33,6 +35,7 @@ __all__ = [
     "Session",
     "AuditLog",
     "UserQuota",
+    "ResetRequest",
     # enums
     "UserRole",
     "DeviceType",
@@ -41,4 +44,5 @@ __all__ = [
     "BookingGrantedVia",
     "BookingStatus",
     "SessionStatus",
+    "ResetRequestStatus",
 ]
