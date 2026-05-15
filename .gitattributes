@@ -1,0 +1,17 @@
+# Force LF line endings for shell scripts and config that run on Linux containers/VPS.
+# Without this, Windows working trees can introduce CRLF that breaks `#!/usr/bin/env bash\r` shebangs after deploy.
+*.sh           text eol=lf
+*.bash         text eol=lf
+Dockerfile     text eol=lf
+*.conf         text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.toml         text eol=lf
+.env.example   text eol=lf
+.dockerignore  text eol=lf
+.gitignore     text eol=lf
+
+# Keep Windows native line endings for files used only on Windows dev machines.
+*.ps1          text eol=crlf
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
