@@ -34,11 +34,15 @@ export interface BookingModalProps {
   device: Device;
   onClose: () => void;
   onBooked: () => void;
+  /** Optional prefilled start (local-input format YYYY-MM-DDTHH:MM). Used when opening from a calendar empty-cell click. */
+  initialStart?: string;
+  /** Optional prefilled end. Defaults to initialStart+2h. */
+  initialEnd?: string;
 }
 
-export function BookingModal({ device, onClose, onBooked }: BookingModalProps) {
-  const [start, setStart] = useState(nextHourLocal());
-  const [end, setEnd] = useState(plusHours(nextHourLocal(), 2));
+export function BookingModal({ device, onClose, onBooked, initialStart, initialEnd }: BookingModalProps) {
+  const [start, setStart] = useState(initialStart ?? nextHourLocal());
+  const [end, setEnd] = useState(initialEnd ?? plusHours(initialStart ?? nextHourLocal(), 2));
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);

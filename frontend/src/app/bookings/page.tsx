@@ -1,10 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { Calendar, Plus, Cpu, Inbox, ExternalLink, X, List, CalendarDays } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  Calendar,
+  Plus,
+  Cpu,
+  Inbox,
+  ExternalLink,
+  X,
+  List,
+  CalendarDays,
+  Power,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
+import { BookingModal } from "@/components/BookingModal";
+import type { Device } from "@/components/DeviceCard";
 import { Countdown } from "@/components/Countdown";
 import { L, useLocaleListener } from "@/components/LocaleText";
 
@@ -20,7 +32,22 @@ type Booking = {
   notes: string | null;
 };
 
-type Device = { id: string; name: string; model: string; device_type: string };
+type BusySlot = {
+  start: string;
+  end: string;
+  is_mine: boolean;
+  booking_id: string;
+  status: "scheduled" | "active";
+  display: string;
+};
+
+type Availability = {
+  device_id: string;
+  device_name: string;
+  from: string;
+  to: string;
+  busy: BusySlot[];
+};
 
 const STATUS_BADGE: Record<Booking["status"], string> = {
   scheduled: "bg-vju-100 text-vju-700 dark:bg-vju-900/40 dark:text-vju-100",
@@ -28,14 +55,6 @@ const STATUS_BADGE: Record<Booking["status"], string> = {
   completed: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
   cancelled: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
   no_show: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-};
-
-const STATUS_BG: Record<Booking["status"], string> = {
-  scheduled: "bg-vju-500/30 border-vju-500",
-  active: "bg-emerald-500/40 border-emerald-500",
-  completed: "bg-slate-400/30 border-slate-400",
-  cancelled: "bg-rose-500/20 border-rose-500 opacity-50 line-through",
-  no_show: "bg-amber-500/20 border-amber-500 opacity-60",
 };
 
 function startOfWeek(d: Date): Date {
@@ -46,6 +65,14 @@ function startOfWeek(d: Date): Date {
   return out;
 }
 
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toLocalInput(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function BookingsInner() {
   const locale = useLocaleListener();
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -53,18 +80,31 @@ function BookingsInner() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"list" | "week">("list");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
+  const [bookingOpen, setBookingOpen] = useState<{
+    device: Device;
+    start?: string;
+    end?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
       const v = localStorage.getItem("bookings_view");
       if (v === "list" || v === "week") setView(v);
+      const dev = localStorage.getItem("bookings_selected_device");
+      if (dev) setSelectedDeviceId(dev);
     }
   }, []);
   useEffect(() => {
     if (typeof window !== "undefined") localStorage.setItem("bookings_view", view);
   }, [view]);
+  useEffect(() => {
+    if (typeof window !== "undefined" && selectedDeviceId) {
+      localStorage.setItem("bookings_selected_device", selectedDeviceId);
+    }
+  }, [selectedDeviceId]);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     setLoading(true);
     Promise.all([
       fetch(`${API}/bookings`, { credentials: "include" }).then((r) => (r.ok ? r.json() : [])),
@@ -72,10 +112,18 @@ function BookingsInner() {
     ]).then(([b, d]: [Booking[], Device[]]) => {
       setBookings(b);
       setDevices(new Map(d.map((x) => [x.id, x])));
+      // Default to first device if none selected
+      if (!selectedDeviceId && d.length > 0) {
+        setSelectedDeviceId(d[0].id);
+      }
       setLoading(false);
     });
-  };
-  useEffect(refresh, []);
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const cancel = async (id: string) => {
     if (!confirm("Huỷ booking này?")) return;
@@ -100,24 +148,18 @@ function BookingsInner() {
       day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
     });
 
-  // Week-view data: 7 days × hours, place each booking as a vertical block
-  const weekStart = useMemo(() => {
-    const w = startOfWeek(new Date());
-    w.setDate(w.getDate() + weekOffset * 7);
-    return w;
-  }, [weekOffset]);
-  const weekEnd = useMemo(() => {
-    const w = new Date(weekStart);
-    w.setDate(w.getDate() + 7);
-    return w;
-  }, [weekStart]);
+  const selectedDevice = selectedDeviceId ? devices.get(selectedDeviceId) ?? null : null;
 
-  const visibleBookings = useMemo(() => {
-    return bookings.filter((b) => {
-      const s = new Date(b.start_time).getTime();
-      return s >= weekStart.getTime() && s < weekEnd.getTime();
+  const openBookingFromCell = (cellDate: Date) => {
+    if (!selectedDevice) return;
+    const end = new Date(cellDate);
+    end.setHours(end.getHours() + 2);
+    setBookingOpen({
+      device: selectedDevice,
+      start: toLocalInput(cellDate),
+      end: toLocalInput(end),
     });
-  }, [bookings, weekStart, weekEnd]);
+  };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -127,7 +169,7 @@ function BookingsInner() {
             <L k="page.bookings.title" />
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {loading ? "Loading..." : `${bookings.length} lịch`}
+            {loading ? "Loading..." : `${bookings.length} lịch của bạn`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -229,146 +271,339 @@ function BookingsInner() {
           </ul>
         )
       ) : (
-        <WeekView
-          weekStart={weekStart}
-          bookings={visibleBookings}
-          devices={devices}
-          onBack={() => setWeekOffset((w) => w - 1)}
-          onForward={() => setWeekOffset((w) => w + 1)}
-          onToday={() => setWeekOffset(0)}
+        <WeekCalendar
+          devices={[...devices.values()]}
+          selectedDeviceId={selectedDeviceId}
+          onSelectDevice={setSelectedDeviceId}
           weekOffset={weekOffset}
+          onWeekChange={setWeekOffset}
+          onEmptyCellClick={openBookingFromCell}
+          onCancel={(id) => cancel(id).then(refresh)}
+          onConnect={connect}
+        />
+      )}
+
+      {bookingOpen && (
+        <BookingModal
+          device={bookingOpen.device}
+          initialStart={bookingOpen.start}
+          initialEnd={bookingOpen.end}
+          onClose={() => setBookingOpen(null)}
+          onBooked={() => {
+            setBookingOpen(null);
+            refresh();
+          }}
         />
       )}
     </div>
   );
 }
 
-function WeekView({
-  weekStart,
-  bookings,
+const HOUR_PX = 40;
+const START_HOUR = 7;
+const END_HOUR = 23;
+const TOTAL_ROWS = END_HOUR - START_HOUR;
+
+function WeekCalendar({
   devices,
-  onBack,
-  onForward,
-  onToday,
+  selectedDeviceId,
+  onSelectDevice,
   weekOffset,
+  onWeekChange,
+  onEmptyCellClick,
+  onCancel,
+  onConnect,
 }: {
-  weekStart: Date;
-  bookings: Booking[];
-  devices: Map<string, Device>;
-  onBack: () => void;
-  onForward: () => void;
-  onToday: () => void;
+  devices: Device[];
+  selectedDeviceId: string | null;
+  onSelectDevice: (id: string) => void;
   weekOffset: number;
+  onWeekChange: (offset: number) => void;
+  onEmptyCellClick: (cellDate: Date) => void;
+  onCancel: (bookingId: string) => void;
+  onConnect: (bookingId: string) => void;
 }) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
-  const HOUR_PX = 38; // height of one hour row
-  const START_HOUR = 7;
-  const END_HOUR = 23;
-  const totalRows = END_HOUR - START_HOUR;
+  const [data, setData] = useState<Availability | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+
+  const weekStart = useMemo(() => {
+    const w = startOfWeek(new Date());
+    w.setDate(w.getDate() + weekOffset * 7);
+    return w;
+  }, [weekOffset]);
+
+  const weekEnd = useMemo(() => {
+    const e = new Date(weekStart);
+    e.setDate(e.getDate() + 7);
+    return e;
+  }, [weekStart]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    setLoading(true);
+    setError(null);
+    const isoWeekStart = weekStart.toISOString();
+    fetch(
+      `${API}/devices/${selectedDeviceId}/availability?week_start=${encodeURIComponent(isoWeekStart)}`,
+      { credentials: "include" },
+    )
+      .then(async (r) => {
+        if (r.ok) {
+          setData(await r.json());
+        } else {
+          const e = await r.json().catch(() => ({}));
+          setError(e?.detail?.code === "ACCESS_DENIED"
+            ? "Bạn chưa được cấp quyền xem lịch thiết bị này."
+            : `Lỗi tải lịch: ${e?.detail?.code ?? r.status}`);
+          setData(null);
+        }
+      })
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
+  }, [selectedDeviceId, weekStart]);
+
+  const days = useMemo(() => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+  }, [weekStart]);
 
   const dayLabel = (d: Date) =>
     d.toLocaleDateString("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" });
   const todayKey = new Date().toDateString();
 
+  const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
+
   return (
     <div className="surface overflow-hidden">
-      <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <div className="text-sm font-semibold">
-          {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })} —{" "}
-          {new Date(weekStart.getTime() + 6 * 86400_000).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <div className="flex items-center gap-3">
+          <Cpu className="h-4 w-4 text-vju-500" />
+          <select
+            value={selectedDeviceId ?? ""}
+            onChange={(e) => onSelectDevice(e.target.value)}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold focus:border-vju-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
+          >
+            <option value="" disabled>Chọn thiết bị...</option>
+            {devices.map((d) => (
+              <option key={d.id} value={d.id}>{d.name} — {d.model}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-500">
+            {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
+            {new Date(weekEnd.getTime() - 1).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+          </span>
         </div>
         <div className="inline-flex rounded-md border border-slate-300 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
-          <button onClick={onBack} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
-          <button onClick={onToday} className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}>Tuần này</button>
-          <button onClick={onForward} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
+          <button onClick={() => onWeekChange(weekOffset - 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
+          <button
+            onClick={() => onWeekChange(0)}
+            className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+          >
+            Tuần này
+          </button>
+          <button onClick={() => onWeekChange(weekOffset + 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
         </div>
       </header>
 
-      <div className="grid" style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}>
-        {/* header row */}
-        <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50" />
-        {days.map((d, i) => (
-          <div
-            key={i}
-            className={`border-b border-l border-slate-200 px-2 py-2 text-center text-xs font-semibold dark:border-slate-800 ${
-              d.toDateString() === todayKey ? "bg-vju-50 text-vju-700 dark:bg-vju-900/30 dark:text-vju-100" : "bg-slate-50 text-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
-            }`}
-          >
-            {dayLabel(d)}
-          </div>
-        ))}
-
-        {/* time labels */}
-        <div className="bg-slate-50/50 dark:bg-slate-900/30">
-          {Array.from({ length: totalRows }, (_, i) => (
-            <div
-              key={i}
-              className="border-b border-slate-200 pr-2 pt-1 text-right font-mono text-[10px] text-slate-400 dark:border-slate-800"
-              style={{ height: HOUR_PX }}
-            >
-              {String(START_HOUR + i).padStart(2, "0")}:00
-            </div>
-          ))}
+      {!selectedDevice ? (
+        <div className="p-10 text-center text-sm text-slate-500">Chọn 1 thiết bị để xem lịch.</div>
+      ) : error ? (
+        <div className="m-4 rounded-md border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+          {error}
         </div>
+      ) : (
+        <div className="relative">
+          {loading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-sm dark:bg-slate-950/50">
+              <span className="text-xs text-slate-500">Đang tải...</span>
+            </div>
+          )}
+          <div className="grid" style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}>
+            <div className="border-b border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/50" />
+            {days.map((d, i) => (
+              <div
+                key={i}
+                className={`border-b border-l border-slate-200 px-2 py-2 text-center text-xs font-semibold dark:border-slate-800 ${
+                  d.toDateString() === todayKey
+                    ? "bg-vju-50 text-vju-700 dark:bg-vju-900/30 dark:text-vju-100"
+                    : "bg-slate-50 text-slate-700 dark:bg-slate-800/50 dark:text-slate-300"
+                }`}
+              >
+                {dayLabel(d)}
+              </div>
+            ))}
 
-        {/* day columns with relative-positioned bookings */}
-        {days.map((day, di) => {
-          const dayStart = new Date(day);
-          dayStart.setHours(0, 0, 0, 0);
-          const dayBookings = bookings.filter((b) => {
-            const bs = new Date(b.start_time);
-            return bs.toDateString() === day.toDateString();
-          });
-          return (
-            <div
-              key={di}
-              className="relative border-l border-slate-200 dark:border-slate-800"
-              style={{ height: HOUR_PX * totalRows }}
-            >
-              {Array.from({ length: totalRows }, (_, i) => (
+            <div className="bg-slate-50/50 dark:bg-slate-900/30">
+              {Array.from({ length: TOTAL_ROWS }, (_, i) => (
                 <div
                   key={i}
-                  className="border-b border-slate-100 dark:border-slate-800/60"
+                  className="border-b border-slate-200 pr-2 pt-1 text-right font-mono text-[10px] text-slate-400 dark:border-slate-800"
                   style={{ height: HOUR_PX }}
-                />
+                >
+                  {pad(START_HOUR + i)}:00
+                </div>
               ))}
-              {dayBookings.map((b) => {
-                const s = new Date(b.start_time);
-                const e = new Date(b.end_time);
-                const startMin = (s.getHours() - START_HOUR) * 60 + s.getMinutes();
-                const durMin = (e.getTime() - s.getTime()) / 60000;
-                if (startMin < 0 || startMin >= totalRows * 60) return null;
-                const top = (startMin / 60) * HOUR_PX;
-                const height = Math.max(20, (durMin / 60) * HOUR_PX);
-                const dev = devices.get(b.device_id);
-                return (
-                  <div
-                    key={b.id}
-                    className={`absolute inset-x-1 rounded-md border px-1.5 py-1 text-[10px] shadow-sm ${STATUS_BG[b.status]}`}
-                    style={{ top, height }}
-                    title={`${dev?.name ?? b.device_id} ${s.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}-${e.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`}
-                  >
-                    <p className="truncate font-mono font-bold">{dev?.name ?? "?"}</p>
-                    <p className="truncate text-[9px] opacity-80">
-                      {s.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}-
-                      {e.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
-                    </p>
-                  </div>
-                );
-              })}
             </div>
-          );
-        })}
-      </div>
 
-      <p className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 dark:border-slate-800">
-        ⓘ Click vào danh sách để cancel/connect. Hiển thị 07:00–23:00. Booking ngoài khung giờ này không hiện trên grid.
-      </p>
+            {days.map((day, di) => (
+              <DayColumn
+                key={di}
+                day={day}
+                busy={data?.busy ?? []}
+                expandedBookingId={expandedBookingId}
+                onExpand={setExpandedBookingId}
+                onEmptyCellClick={onEmptyCellClick}
+                onCancel={onCancel}
+                onConnect={onConnect}
+              />
+            ))}
+          </div>
+
+          <p className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 dark:border-slate-800">
+            ⓘ Click ô trống = đặt slot · click block = xem chi tiết / Connect / Cancel · 07:00–23:00.
+          </p>
+        </div>
+      )}
     </div>
+  );
+}
+
+function DayColumn({
+  day,
+  busy,
+  expandedBookingId,
+  onExpand,
+  onEmptyCellClick,
+  onCancel,
+  onConnect,
+}: {
+  day: Date;
+  busy: BusySlot[];
+  expandedBookingId: string | null;
+  onExpand: (id: string | null) => void;
+  onEmptyCellClick: (cellDate: Date) => void;
+  onCancel: (bookingId: string) => void;
+  onConnect: (bookingId: string) => void;
+}) {
+  const dayBusy = busy.filter((b) => {
+    const bs = new Date(b.start);
+    return bs.toDateString() === day.toDateString();
+  });
+
+  return (
+    <div
+      className="relative border-l border-slate-200 dark:border-slate-800"
+      style={{ height: HOUR_PX * TOTAL_ROWS }}
+    >
+      {Array.from({ length: TOTAL_ROWS }, (_, i) => {
+        const cellDate = new Date(day);
+        cellDate.setHours(START_HOUR + i, 0, 0, 0);
+        return (
+          <button
+            type="button"
+            key={i}
+            onClick={() => onEmptyCellClick(cellDate)}
+            className="block w-full border-b border-slate-100 transition hover:bg-vju-50/60 hover:ring-1 hover:ring-inset hover:ring-vju-400 dark:border-slate-800/60 dark:hover:bg-vju-900/30"
+            style={{ height: HOUR_PX }}
+            aria-label={`Đặt slot ${pad(START_HOUR + i)}:00`}
+          />
+        );
+      })}
+      {dayBusy.map((b) => (
+        <BusyBlock
+          key={b.booking_id}
+          slot={b}
+          expanded={expandedBookingId === b.booking_id}
+          onExpand={() => onExpand(expandedBookingId === b.booking_id ? null : b.booking_id)}
+          onCancel={onCancel}
+          onConnect={onConnect}
+        />
+      ))}
+    </div>
+  );
+}
+
+function BusyBlock({
+  slot,
+  expanded,
+  onExpand,
+  onCancel,
+  onConnect,
+}: {
+  slot: BusySlot;
+  expanded: boolean;
+  onExpand: () => void;
+  onCancel: (id: string) => void;
+  onConnect: (id: string) => void;
+}) {
+  const s = new Date(slot.start);
+  const e = new Date(slot.end);
+  const startMin = (s.getHours() - START_HOUR) * 60 + s.getMinutes();
+  const durMin = (e.getTime() - s.getTime()) / 60_000;
+  if (startMin < 0 || startMin >= TOTAL_ROWS * 60) return null;
+  const top = (startMin / 60) * HOUR_PX;
+  const height = Math.max(22, (durMin / 60) * HOUR_PX);
+
+  const timeLabel = `${pad(s.getHours())}:${pad(s.getMinutes())}–${pad(e.getHours())}:${pad(e.getMinutes())}`;
+  const now = Date.now();
+  const canConnect = slot.is_mine && now >= s.getTime() - 5 * 60_000 && now < e.getTime();
+  const canCancel = slot.is_mine;
+
+  const color = slot.is_mine
+    ? "bg-vju-500/85 border-vju-600 text-white shadow-md hover:bg-vju-500"
+    : "bg-slate-400/70 border-slate-500 text-white hover:bg-slate-500";
+
+  return (
+    <button
+      type="button"
+      onClick={(ev) => {
+        ev.stopPropagation();
+        onExpand();
+      }}
+      className={`absolute inset-x-1 cursor-pointer rounded-md border px-1.5 py-1 text-left text-[10px] transition ${color} ${expanded ? "z-20 ring-2 ring-offset-1 ring-vju-300" : "z-10"}`}
+      style={{ top, height: expanded ? Math.max(height, 92) : height }}
+      title={`${slot.display} · ${timeLabel}`}
+    >
+      <p className="truncate font-mono font-bold leading-tight">{slot.display}</p>
+      <p className="truncate text-[9px] opacity-85">{timeLabel}</p>
+      {expanded && (
+        <div
+          className="mt-1 flex flex-wrap gap-1 border-t border-white/30 pt-1"
+          onClick={(ev) => ev.stopPropagation()}
+        >
+          {canConnect && (
+            <button
+              type="button"
+              onClick={() => onConnect(slot.booking_id)}
+              className="inline-flex items-center gap-0.5 rounded bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white hover:bg-emerald-600"
+            >
+              <Power className="h-2.5 w-2.5" />
+              Connect
+            </button>
+          )}
+          {canCancel && (
+            <button
+              type="button"
+              onClick={() => onCancel(slot.booking_id)}
+              className="inline-flex items-center gap-0.5 rounded bg-white/95 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 hover:bg-white"
+            >
+              <X className="h-2.5 w-2.5" />
+              Cancel
+            </button>
+          )}
+          {!slot.is_mine && (
+            <span className="text-[10px] opacity-90">
+              Slot đã có người đặt.
+            </span>
+          )}
+        </div>
+      )}
+    </button>
   );
 }
 

@@ -11,7 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
 from app.core.db import get_db
-from app.models import Booking, BookingStatus, Device, PlugMapping, User
+from app.models import (
+    Booking,
+    BookingStatus,
+    Class,
+    ClassDeviceAssignment,
+    Device,
+    Enrollment,
+    PlugMapping,
+    SpecialAccess,
+    User,
+    UserRole,
+)
 from app.schemas import DeviceCreate, DeviceOut, DeviceUpdate
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -99,18 +110,60 @@ async def update_device(
     return device
 
 
+async def _user_can_view_device_schedule(
+    db: AsyncSession, *, user: User, device_id: UUID
+) -> bool:
+    """A user can view a device's weekly schedule if they:
+    - are admin or lecturer (see everything), or
+    - have an active enrollment in a class that has an active assignment for this device, or
+    - have an active special_access for this device.
+    """
+    if user.role in (UserRole.ADMIN, UserRole.LECTURER):
+        return True
+    res = await db.execute(
+        select(ClassDeviceAssignment.id)
+        .join(Class, Class.id == ClassDeviceAssignment.class_id)
+        .join(Enrollment, Enrollment.class_id == Class.id)
+        .where(
+            Enrollment.user_id == user.id,
+            Enrollment.is_active.is_(True),
+            ClassDeviceAssignment.device_id == device_id,
+            ClassDeviceAssignment.revoked_at.is_(None),
+        )
+        .limit(1)
+    )
+    if res.first() is not None:
+        return True
+    res = await db.execute(
+        select(SpecialAccess.id).where(
+            SpecialAccess.user_id == user.id,
+            SpecialAccess.device_id == device_id,
+            SpecialAccess.revoked_at.is_(None),
+        ).limit(1)
+    )
+    return res.first() is not None
+
+
 @router.get("/{device_id}/availability")
 async def device_availability(
     device_id: UUID,
     days: int = Query(7, ge=1, le=30),
+    week_start: datetime | None = Query(
+        None,
+        description="ISO datetime — if set, return bookings in [week_start, week_start+7d). Overrides `days`.",
+    ),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Return busy slots (scheduled+active) on this device over `days` from now.
+    """Return busy slots (scheduled+active) on this device, with display labels.
 
-    Frontend calendar uses this to overlay 'busy' blocks. Each slot has
-    `is_mine=true` if the booking belongs to the caller (so we don't double-count
-    against suggestions).
+    Used by the week-calendar view on `/bookings` to show everyone's bookings on
+    a device the caller has access to. Each slot has:
+    - `is_mine`: True if booking is the caller's
+    - `display`: "Bạn" if mine, else the other user's student_code or "Người dùng"
+
+    Access: admin/lecturer can view any device. Students can only view devices
+    they have an active class enrollment OR special_access for.
     """
     device = (
         await db.execute(select(Device).where(Device.id == device_id))
@@ -118,29 +171,53 @@ async def device_availability(
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "DEVICE_NOT_FOUND"})
 
-    now = datetime.now(timezone.utc)
-    horizon = now + timedelta(days=days)
+    if not await _user_can_view_device_schedule(db, user=user, device_id=device_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={"code": "ACCESS_DENIED", "hint": "Bạn chưa được cấp quyền cho thiết bị này."},
+        )
+
+    if week_start is not None:
+        start = week_start.astimezone(timezone.utc)
+        horizon = start + timedelta(days=7)
+    else:
+        start = datetime.now(timezone.utc)
+        horizon = start + timedelta(days=days)
 
     res = await db.execute(
-        select(Booking).where(
+        select(Booking, User.student_code, User.full_name)
+        .join(User, User.id == Booking.user_id)
+        .where(
             Booking.device_id == device_id,
             Booking.status.in_([BookingStatus.SCHEDULED, BookingStatus.ACTIVE]),
-            Booking.end_time > now,
+            Booking.end_time > start,
             Booking.start_time < horizon,
-        ).order_by(Booking.start_time)
+        )
+        .order_by(Booking.start_time)
     )
     busy = []
-    for b in res.scalars().all():
+    for b, sc, full_name in res.all():
+        is_mine = b.user_id == user.id
+        if is_mine:
+            display = "Bạn"
+        elif user.role in (UserRole.ADMIN, UserRole.LECTURER):
+            # Privileged viewer — show full name so lecturer can identify the student
+            display = sc or full_name or "Người dùng"
+        else:
+            # Peer student — privacy: only student_code, no name/email
+            display = sc or "Người dùng"
         busy.append({
             "start": b.start_time.isoformat(),
             "end": b.end_time.isoformat(),
-            "is_mine": b.user_id == user.id,
+            "is_mine": is_mine,
             "booking_id": str(b.id),
+            "status": b.status.value,
+            "display": display,
         })
     return {
         "device_id": str(device_id),
         "device_name": device.name,
-        "from": now.isoformat(),
+        "from": start.isoformat(),
         "to": horizon.isoformat(),
         "busy": busy,
     }
