@@ -3,6 +3,7 @@
 import { Plus, RotateCcw, X, Users as UsersIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
 
@@ -113,20 +114,20 @@ function UsersAdminInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý người dùng</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">{users.length} tài khoản</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
-        >
-          {show ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {show ? "Đóng" : "Tạo tài khoản"}
-        </button>
-      </header>
+      <AdminPageHeader
+        title="Quản lý người dùng"
+        subtitle={`${users.length} tài khoản`}
+        actions={
+          <button
+            type="button"
+            onClick={() => setShow((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
+          >
+            {show ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {show ? "Đóng" : "Tạo tài khoản"}
+          </button>
+        }
+      />
 
       {show && (
         <form onSubmit={submit} className="surface grid gap-3 p-5 md:grid-cols-2">

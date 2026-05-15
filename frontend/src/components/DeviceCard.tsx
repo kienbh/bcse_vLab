@@ -97,14 +97,20 @@ export type FamilyTheme = {
   maintenance: string;
 };
 
+// Per-family color theme. `available` follows the family's signature color
+// (matches the family page header on /devices/{family}), so cards on the FPGA
+// page read blue, Jetson reads green, RPi reads pink — no more visual mismatch
+// between the page banner and the card banner. `occupied/offline/maintenance`
+// stay neutral across all families to avoid hiding warning states behind a
+// theme-matched green.
 const THEMES: Record<DeviceFamily, FamilyTheme> = {
   fpga: {
     badge: "FPGA",
     accent: "from-vju-500 to-vju-700",
     available:
-      "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
+      "from-vju-400 via-vju-500 to-vju-700 shadow-vju-500/30",
     occupied:
-      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+      "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
     offline:
       "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
     maintenance:
@@ -116,7 +122,7 @@ const THEMES: Record<DeviceFamily, FamilyTheme> = {
     available:
       "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
     occupied:
-      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+      "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
     offline:
       "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
     maintenance:
@@ -126,9 +132,9 @@ const THEMES: Record<DeviceFamily, FamilyTheme> = {
     badge: "RPI",
     accent: "from-rose-500 to-pink-700",
     available:
-      "from-emerald-400 via-emerald-500 to-teal-600 shadow-emerald-500/30",
+      "from-rose-400 via-rose-500 to-pink-600 shadow-rose-500/30",
     occupied:
-      "from-amber-400 via-orange-500 to-rose-500 shadow-amber-500/30",
+      "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
     offline:
       "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
     maintenance:
@@ -191,31 +197,43 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
   const gradient = theme[state];
 
   const resetPlug = async () => {
-    if (!confirm(`Reset nguồn ${device.name}? Kit sẽ tắt 5 giây rồi bật lại.`)) return;
+    const reason = window.prompt(
+      `Lý do reset ${device.name}?\n(VD: kit treo sau khi nạp bitstream, ssh không phản hồi...)`,
+      "",
+    );
+    if (reason === null) return;
+    const trimmed = reason.trim();
+    if (trimmed.length < 3) {
+      setResetMsg("× Cần ghi rõ lý do (≥ 3 ký tự).");
+      return;
+    }
     setResetting(true);
     setResetMsg(null);
     try {
-      const r = await fetch(`${API}/devices/${device.id}/reset`, {
+      const r = await fetch(`${API}/reset-requests`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ device_id: device.id, reason: trimmed }),
       });
       const data = await r.json().catch(() => ({}));
       if (r.ok) {
-        setResetMsg(
-          data.powered_on
-            ? "✓ Đã power-cycle, kit đang khởi động lại."
-            : "✓ Đã gửi lệnh reset.",
-        );
-        // Refresh status quickly after reset
-        setTimeout(poll, 1500);
+        if (data.auto_approved) {
+          setResetMsg("✓ Đã auto-reset (bạn là người đang dùng kit).");
+          setTimeout(poll, 1500);
+        } else {
+          setResetMsg("📨 Đã gửi yêu cầu. Đang đợi GV/admin duyệt...");
+        }
       } else {
         const code = data?.detail?.code ?? "ERROR";
         setResetMsg(
-          code === "NO_PLUG_MAPPED"
-            ? "× Kit chưa gán smart plug — chưa reset được từ xa."
-            : code === "NOT_CURRENT_BOOKER"
-              ? "× Chỉ người đang chiếm slot mới reset được."
-              : `× Lỗi: ${code}`,
+          code === "REQUEST_ALREADY_PENDING"
+            ? "⏳ Đã có 1 yêu cầu reset đang chờ duyệt cho kit này."
+            : code === "ACCESS_DENIED"
+              ? "× Bạn chưa được cấp quyền cho kit này."
+              : code === "DEVICE_NOT_FOUND"
+                ? "× Không tìm thấy thiết bị."
+                : `× Lỗi: ${code}`,
         );
       }
     } catch (e) {
@@ -402,8 +420,8 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
                 disabled={resetting}
                 title={
                   live?.has_plug
-                    ? "Power-cycle kit nếu bị treo"
-                    : "Kit chưa gán smart plug — nút sẽ báo lỗi"
+                    ? "Gửi yêu cầu reset tới GV/admin (auto-approve nếu bạn đang dùng kit)"
+                    : "Kit chưa gán smart plug — vẫn có thể yêu cầu, GV/admin sẽ xử lý thủ công"
                 }
                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
               >
@@ -412,7 +430,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
                 ) : (
                   <Power className="h-4 w-4" />
                 )}
-                Reset nguồn
+                Yêu cầu reset
               </button>
             </>
           )}

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ListChecks, Plus, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
 
@@ -88,20 +89,20 @@ function ClassesInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Lớp học</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">{classes.length} lớp</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
-        >
-          <Plus className="h-4 w-4" />
-          {show ? "Đóng" : "Tạo lớp"}
-        </button>
-      </header>
+      <AdminPageHeader
+        title="Lớp học"
+        subtitle={`${classes.length} lớp`}
+        actions={
+          <button
+            type="button"
+            onClick={() => setShow((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
+          >
+            <Plus className="h-4 w-4" />
+            {show ? "Đóng" : "Tạo lớp"}
+          </button>
+        }
+      />
 
       {show && (
         <form onSubmit={submit} className="surface grid gap-3 p-5 md:grid-cols-2">

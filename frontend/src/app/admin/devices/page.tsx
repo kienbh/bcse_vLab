@@ -3,6 +3,7 @@
 import { Cpu, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
 
@@ -90,22 +91,20 @@ function DevicesAdminInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Quản lý thiết bị</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            {devices.length} thiết bị · admin có thể click status để cycle
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white hover:bg-vju-600"
-        >
-          {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-          {showForm ? "Đóng" : "Thêm thiết bị"}
-        </button>
-      </header>
+      <AdminPageHeader
+        title="Quản lý thiết bị"
+        subtitle={`${devices.length} thiết bị · admin có thể click status để cycle`}
+        actions={
+          <button
+            type="button"
+            onClick={() => setShowForm((v) => !v)}
+            className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white hover:bg-vju-600"
+          >
+            {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {showForm ? "Đóng" : "Thêm thiết bị"}
+          </button>
+        }
+      />
 
       {showForm && (
         <form onSubmit={submit} className="surface grid gap-3 p-5 md:grid-cols-2">

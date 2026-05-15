@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Cpu, Users, ListChecks, Activity, Settings as SettingsIcon } from "lucide-react";
+import { Cpu, Users, ListChecks, Activity, Bell, Settings as SettingsIcon } from "lucide-react";
 
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
@@ -40,6 +40,14 @@ const TILES: readonly Tile[] = [
     desc: "Quan sát + kick session SSH đang chạy",
     icon: <Activity className="h-6 w-6" />,
     color: "from-amber-500 to-amber-700",
+    roles: ["admin", "lecturer"],
+  },
+  {
+    href: "/admin/reset-queue",
+    title: "Hàng chờ reset",
+    desc: "Duyệt yêu cầu reset kit từ SV — kích plug power-cycle",
+    icon: <Bell className="h-6 w-6" />,
+    color: "from-orange-500 to-rose-600",
     roles: ["admin", "lecturer"],
   },
   {

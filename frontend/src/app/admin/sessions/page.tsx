@@ -3,6 +3,7 @@
 import { Activity, AlertTriangle, Clock, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AdminPageHeader } from "@/components/AdminPageHeader";
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
 
@@ -66,21 +67,19 @@ function SessionsInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Phiên SSH đang hoạt động</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Tự động làm mới mỗi 15 giây. Tổng: <span className="font-semibold">{sessions.length}</span>
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setTick((t) => t + 1)}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
-        >
-          Refresh
-        </button>
-      </header>
+      <AdminPageHeader
+        title="Phiên SSH đang hoạt động"
+        subtitle={<>Tự động làm mới mỗi 15 giây. Tổng: <span className="font-semibold">{sessions.length}</span></>}
+        actions={
+          <button
+            type="button"
+            onClick={() => setTick((t) => t + 1)}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+          >
+            Refresh
+          </button>
+        }
+      />
 
       {loading ? (
         <div className="surface h-32 animate-pulse" />

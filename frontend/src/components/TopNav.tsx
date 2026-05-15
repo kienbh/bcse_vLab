@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Cpu, Calendar, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap } from "lucide-react";
 
+import { ResetQueueBadge } from "@/components/ResetQueueBadge";
 import { UserMenu } from "@/components/UserMenu";
 import type { Locale, MessageKey } from "@/lib/i18n";
 import { t } from "@/lib/i18n";
@@ -108,6 +109,7 @@ export function TopNav() {
           >
             {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
+          <ResetQueueBadge />
           <UserMenu />
           <button
             className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 md:hidden"
