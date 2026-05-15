@@ -238,14 +238,11 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
         className={`relative bg-gradient-to-br ${gradient} px-5 py-4 text-white shadow-md transition`}
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-              {theme.badge}
+              {theme.badge} · {device.name}
             </p>
-            <p className="mt-0.5 truncate font-mono text-2xl font-extrabold leading-tight tracking-tight">
-              {device.name}
-            </p>
-            <p className="mt-1 text-xs leading-snug opacity-80">
+            <p className="mt-1 text-base font-bold leading-tight">
               {device.model}
             </p>
           </div>
