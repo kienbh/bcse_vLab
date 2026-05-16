@@ -89,9 +89,10 @@ export default function HomePage() {
           <div className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-vju-500/10 via-transparent to-accent-500/10 blur-3xl" />
           <div className="surface relative grid grid-cols-2 gap-3 p-4">
             {FEATURES.slice(0, 4).map((f, i) => (
-              <div
+              <Link
                 key={i}
-                className={`relative overflow-hidden rounded-xl bg-gradient-to-br ${f.color} p-4 text-white shadow-md`}
+                href={f.href}
+                className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${f.color} p-4 text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg`}
               >
                 <div className="flex items-center justify-between">
                   {f.icon}
@@ -102,7 +103,10 @@ export default function HomePage() {
                 <p className="mt-3 text-sm font-semibold leading-snug">
                   <L k={f.titleKey} />
                 </p>
-              </div>
+                <span className="mt-1 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider opacity-0 transition group-hover:opacity-90">
+                  Mở dashboard →
+                </span>
+              </Link>
             ))}
             <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
