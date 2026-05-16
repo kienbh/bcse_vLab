@@ -73,9 +73,13 @@ async def _ssh_run_on_jump(cmd: str) -> bool:
 
 
 async def _write_banner(session: GatewaySession, minutes_left: int) -> bool:
-    if not session.pty_path:
+    # Only attempt when pty_path looks like a real device path. Older rows
+    # (and MobaXterm sessions that don't request a pty) stored the literal
+    # string "not a tty" — guard against shell-injecting that into the cmd.
+    pty = session.pty_path or ""
+    if not pty.startswith("/dev/"):
         return False
-    safe_pty = shlex.quote(session.pty_path)
+    safe_pty = shlex.quote(pty)
     safe_msg = shlex.quote(_banner_text(minutes_left))
     cmd = f"test -w {safe_pty} && printf %s {safe_msg} > {safe_pty}"
     return await _ssh_run_on_jump(cmd)

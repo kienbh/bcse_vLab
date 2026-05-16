@@ -156,7 +156,10 @@ SESSION_ID=$(echo "$RESP" | jq -r '.session_id')
 # this to record PID + pty so the janitor can kill on expiry. Bumped from
 # 3s to 10s to match /auth (the curl was timing out under bcrypt load and
 # leaving active_pid NULL, which made janitor revoke unable to kill).
-PTY="$(tty 2>/dev/null || echo '')"
+# Only set PTY when stdin really is a terminal — otherwise `tty` writes
+# the literal string "not a tty" to stdout (rc=1, but redirecting stderr
+# doesn't help), which pollutes the DB and confuses the janitor banner.
+if [[ -t 0 ]]; then PTY="$(tty)"; else PTY=""; fi
 curl -sS --max-time 10 --connect-timeout 4 \
     -H 'Content-Type: application/json' \
     -H "X-Gateway-Secret: ${GATEWAY_SHARED_SECRET}" \
