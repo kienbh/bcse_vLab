@@ -25,8 +25,11 @@ class DeviceCreate(BaseModel):
 
 
 class DeviceUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=64, pattern=r"^[a-z0-9-]+$")
     model: str | None = None
     internal_ip: IPvAnyAddress | None = None
+    ssh_port: int | None = Field(default=None, ge=1, le=65535)
+    ssh_user: str | None = Field(default=None, max_length=32)
     status: DeviceStatus | None = None
     capabilities: dict | None = None
     notes: str | None = None

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Cpu, Cog, Zap, Workflow, BookCheck, Terminal, Calendar, ArrowRight } from "lucide-react";
 
 import { BackendStatus } from "@/components/BackendStatus";
+import { ClickableImage } from "@/components/Lightbox";
 import { L } from "@/components/LocaleText";
 
 const FEATURES = [
@@ -87,16 +88,19 @@ export default function HomePage() {
 
         <div className="relative hidden md:block">
           <div className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-vju-500/20 via-transparent to-accent-500/20 blur-3xl" />
-          {/* Photo of the actual lab rack in Hoà Lạc — Xilinx Kria pool */}
+          {/* Photo of the actual lab rack in Hoà Lạc — Xilinx Kria pool.
+              Click → lightbox full-resolution view. */}
           <div className="relative overflow-hidden rounded-3xl border border-slate-200 shadow-xl dark:border-slate-700">
-            <img
+            <ClickableImage
               src="/images/lab-hero-cinematic.png"
               alt="Pool kit Xilinx Kria tại lab Hoà Lạc"
-              className="aspect-[4/3] w-full object-cover"
+              thumbnailClassName="aspect-[4/3] w-full object-cover"
+              caption="9 Xilinx Kria KV260 — Lab Hoà Lạc"
             />
-            {/* Gradient bottom for caption readability */}
+            {/* Gradient bottom for caption readability — pointer-events none
+                so the click still reaches the image */}
             <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 p-5 text-white">
               <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90">
                 Hoà Lạc · Live
               </p>

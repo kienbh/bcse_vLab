@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X, Trash2, Power, PowerOff, Loader2 } from "lucide-react";
+import { Plus, X, Trash2, Power, PowerOff, Loader2, Pencil, Save } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AdminPageHeader } from "@/components/AdminPageHeader";
@@ -19,6 +19,7 @@ type Device = {
   model: string;
   internal_ip: string;
   ssh_port: number;
+  ssh_user: string;
   status: Status;
   power_state: PowerState;
   power_state_changed_at: string;
@@ -56,6 +57,75 @@ function DevicesAdminInner() {
     internal_ip: "192.168.20.",
     ssh_port: 22,
   });
+  const [editing, setEditing] = useState<Device | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    model: "",
+    internal_ip: "",
+    ssh_port: 22,
+    ssh_user: "",
+    notes: "",
+    capabilities_json: "",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
+
+  const openEdit = (d: Device) => {
+    setEditing(d);
+    setEditForm({
+      name: d.name,
+      model: d.model,
+      internal_ip: d.internal_ip,
+      ssh_port: d.ssh_port,
+      ssh_user: d.ssh_user ?? "",
+      notes: d.notes ?? "",
+      capabilities_json: JSON.stringify(d.capabilities, null, 2),
+    });
+    setEditError(null);
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setEditError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    let caps: Record<string, unknown> | null = null;
+    try {
+      caps = editForm.capabilities_json.trim()
+        ? JSON.parse(editForm.capabilities_json)
+        : {};
+    } catch {
+      setEditError("Capabilities phải là JSON hợp lệ.");
+      return;
+    }
+    setEditBusy(true);
+    setEditError(null);
+    const body: Record<string, unknown> = {
+      name: editForm.name.trim(),
+      model: editForm.model.trim(),
+      internal_ip: editForm.internal_ip.trim(),
+      ssh_port: editForm.ssh_port,
+      capabilities: caps,
+      notes: editForm.notes.trim() || null,
+    };
+    if (editForm.ssh_user.trim()) body.ssh_user = editForm.ssh_user.trim();
+    const r = await fetch(`${API}/devices/${editing.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    setEditBusy(false);
+    if (r.ok) {
+      closeEdit();
+      refresh();
+    } else {
+      const e = await r.json().catch(() => ({}));
+      setEditError(e?.detail?.code ?? JSON.stringify(e).slice(0, 200));
+    }
+  };
 
   const refresh = () => {
     setLoading(true);
@@ -241,19 +311,30 @@ function DevicesAdminInner() {
                       </button>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => remove(d)}
-                        disabled={busy}
-                        className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
-                      >
-                        {busy ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3 w-3" />
-                        )}
-                        Xoá
-                      </button>
+                      <div className="inline-flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(d)}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Sửa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => remove(d)}
+                          disabled={busy}
+                          className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/40"
+                        >
+                          {busy ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3 w-3" />
+                          )}
+                          Xoá
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -271,6 +352,118 @@ function DevicesAdminInner() {
           đang reset (admin đợi confirm sau khi cắm/rút plug)
         </span>
       </div>
+
+      {editing && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-4 backdrop-blur-sm md:items-center"
+          onClick={closeEdit}
+        >
+          <div
+            className="surface w-full max-w-xl overflow-hidden p-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-vju-500 to-vju-700 px-5 py-3 text-white dark:border-slate-700">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
+                  Sửa thiết bị
+                </p>
+                <h2 className="font-mono text-base font-bold leading-tight">
+                  {editing.name}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </header>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                saveEdit();
+              }}
+              className="grid gap-3 p-5 md:grid-cols-2"
+            >
+              <Input
+                label="Name (slug — chỉ a-z 0-9 -)"
+                value={editForm.name}
+                onChange={(v) => setEditForm({ ...editForm, name: v })}
+              />
+              <Input
+                label="Model"
+                value={editForm.model}
+                onChange={(v) => setEditForm({ ...editForm, model: v })}
+              />
+              <Input
+                label="Internal IP"
+                value={editForm.internal_ip}
+                onChange={(v) => setEditForm({ ...editForm, internal_ip: v })}
+              />
+              <Input
+                label="SSH port"
+                type="number"
+                value={String(editForm.ssh_port)}
+                onChange={(v) =>
+                  setEditForm({ ...editForm, ssh_port: Number(v) || 22 })
+                }
+              />
+              <Input
+                label="SSH user (vd: ubuntu, pi, student)"
+                value={editForm.ssh_user}
+                onChange={(v) => setEditForm({ ...editForm, ssh_user: v })}
+              />
+              <Input
+                label="Ghi chú"
+                value={editForm.notes}
+                onChange={(v) => setEditForm({ ...editForm, notes: v })}
+              />
+              <label className="block text-xs font-semibold text-slate-600 md:col-span-2 dark:text-slate-400">
+                Capabilities (JSON)
+                <textarea
+                  value={editForm.capabilities_json}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, capabilities_json: e.target.value })
+                  }
+                  rows={6}
+                  spellCheck={false}
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-900 focus:border-vju-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">
+                  Cặp key:value sẽ render thành chips trên card. Ví dụ:{" "}
+                  <code>{`{"SoC":"XCK26","RAM":"4GB"}`}</code>
+                </p>
+              </label>
+              {editError && (
+                <p className="md:col-span-2 text-xs text-rose-600">{editError}</p>
+              )}
+              <div className="md:col-span-2 flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={editBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2.5 text-sm font-bold text-white shadow hover:shadow-md disabled:opacity-50"
+                >
+                  {editBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  Lưu
+                </button>
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  Huỷ
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
