@@ -471,11 +471,26 @@ def deploy_sv14(jump: paramiko.SSHClient, *, skip_build: bool = False) -> None:
                f"cp {SV14_REMOTE}/infrastructure/sv14/.env.prod.example "
                f"{SV14_REMOTE}/infrastructure/sv14/.env.prod")
 
-        # Generate secrets if env.prod still has placeholders
+        # Generate secrets if env.prod still has placeholders.
+        # Also append any keys missing entirely (new milestones add keys to
+        # .env.prod.example that older preserved .env.prod files won't have).
         run(c, f"""cd {SV14_REMOTE}/infrastructure/sv14 && python3 - <<'PY'
 import secrets, re, pathlib
 p = pathlib.Path('.env.prod')
 s = p.read_text()
+
+# Append missing keys with placeholders so the existing gen-on-placeholder
+# loop below picks them up. Append-only — never overwrite an existing value.
+APPEND_IF_MISSING = {{
+    'GATEWAY_SHARED_SECRET': '__GENERATE__',
+    'GATEWAY_SSH_USERNAME': 'vlab',
+}}
+for k, default in APPEND_IF_MISSING.items():
+    if not re.search(rf'^{{k}}=', s, re.M):
+        if not s.endswith('\\n'):
+            s += '\\n'
+        s += f'{{k}}={{default}}\\n'
+
 def gen(n=64): return secrets.token_urlsafe(n)[:n]
 def sub(key, val):
     global s
@@ -513,7 +528,9 @@ PY
         if not skip_build:
             sudo_run(c, f"cd {compose_dir} && docker compose -f docker-compose.prod.yml --env-file .env.prod build",
                      SV14_PASS, timeout=1800)
-        sudo_run(c, f"cd {compose_dir} && docker compose -f docker-compose.prod.yml --env-file .env.prod up -d",
+        # --remove-orphans drops stale services from prior compose files
+        # (e.g. wetty-1 left over from pre-M5.8).
+        sudo_run(c, f"cd {compose_dir} && docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans",
                  SV14_PASS, timeout=600)
         time.sleep(15)
         sudo_run(c, "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'", SV14_PASS, check=False)

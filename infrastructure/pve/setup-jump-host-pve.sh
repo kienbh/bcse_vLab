@@ -42,8 +42,16 @@ KIT_KEY_PATH="${KIT_KEY_PATH:-/etc/vlab/backend_ed25519}"
 # ------------------------------------------------------------------------- #
 log "1/7 — ensure curl + jq are installed"
 if ! command -v jq >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1; then
-    apt-get update -qq
-    apt-get install -y -qq curl jq
+    # Try install with existing apt cache first — PVE hosts often have the
+    # enterprise repo (which fails apt-get update without a subscription),
+    # so we only fall back to a network refresh if the install itself fails.
+    if ! apt-get install -y -qq curl jq 2>/dev/null; then
+        # Refresh only the Debian + pve-no-subscription lists, ignoring any
+        # enterprise repo errors.
+        apt-get update -o Acquire::AllowInsecureRepositories=true \
+            -o APT::Update::Error-Mode=any 2>/dev/null || true
+        apt-get install -y -qq curl jq
+    fi
 fi
 
 # ------------------------------------------------------------------------- #
@@ -202,6 +210,15 @@ fi
 # 6. sshd Match block for vlab user
 # ------------------------------------------------------------------------- #
 log "6/7 — install /etc/ssh/sshd_config.d/99-vju-jump.conf"
+
+# Verify global UsePAM is on (Debian/PVE default), otherwise our pam_exec
+# block in /etc/pam.d/sshd is never consulted.
+if ! sshd -T 2>/dev/null | grep -qx "usepam yes"; then
+    log "  WARNING — global UsePAM is OFF. Adding 'UsePAM yes' to /etc/ssh/sshd_config"
+    if ! grep -qE "^\s*UsePAM\s+yes" /etc/ssh/sshd_config; then
+        echo "UsePAM yes" >> /etc/ssh/sshd_config
+    fi
+fi
 cat > /etc/ssh/sshd_config.d/99-vju-jump.conf <<EOF
 # VJU Lab Portal — gateway user (ADR-0013).
 # Static account 'vlab': password-auth via PAM → backend, no key, no shell,
@@ -211,7 +228,6 @@ Match User vlab
     PasswordAuthentication yes
     PubkeyAuthentication no
     AuthenticationMethods password
-    UsePAM yes
     AuthorizedKeysFile /dev/null
     PermitTTY yes
     AllowTcpForwarding no

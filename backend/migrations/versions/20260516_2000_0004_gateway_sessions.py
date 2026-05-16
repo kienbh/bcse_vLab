@@ -72,6 +72,20 @@ def upgrade() -> None:
         sa.Column(
             "regenerate_count", sa.Integer, nullable=False, server_default="0"
         ),
+        # TimestampMixin columns — added separately in 0005 historically,
+        # consolidated here so fresh installs avoid the round-trip.
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("now()"),
+        ),
     )
 
     # Active-session lookup: PAM auth fetches all unrevoked + unexpired rows

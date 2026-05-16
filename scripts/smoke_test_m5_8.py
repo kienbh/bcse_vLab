@@ -17,13 +17,29 @@ import sys
 import urllib.error
 import urllib.request
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
 
 def post(url: str, body: dict, *, headers: dict | None = None, timeout: int = 10):
     req = urllib.request.Request(
         url,
         method="POST",
         data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json", **(headers or {})},
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": BROWSER_UA,
+            "Accept": "application/json",
+            **(headers or {}),
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
