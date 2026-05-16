@@ -157,3 +157,9 @@ proxmox-backup/
 test-keys/
 # Resume notes for Claude Code session continuity
 RESUME.md
+# Claude Code per-project local working directory (hooks, history)
+.claude/
+# Source PNGs already copied into frontend/public/images/lab-*.png
+media/
+# Original ADR-0013 drafts — final copy lives in docs/13-gateway-redesign.md
+redesign1/
