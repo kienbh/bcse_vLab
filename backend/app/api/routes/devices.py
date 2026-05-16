@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_admin
 from app.core.db import get_db
@@ -17,6 +18,8 @@ from app.models import (
     Class,
     ClassDeviceAssignment,
     Device,
+    DevicePowerState,
+    DeviceStatus,
     Enrollment,
     PlugMapping,
     SpecialAccess,
@@ -142,6 +145,109 @@ async def _user_can_view_device_schedule(
         ).limit(1)
     )
     return res.first() is not None
+
+
+@router.get("/{device_id}/live-status")
+async def device_live_status(
+    device_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Snapshot for the device card on /devices/{family}.
+
+    Combines DB state (current booking, next booking, plug presence) with a
+    crude reachability indicator. We don't actually SSH-probe here — that
+    would add 200ms+ to every card refresh — instead we trust:
+      - `device.power_state == 'off'` → not reachable
+      - `device.status == 'offline'` → not reachable
+      - otherwise → reachable (the real probe happens implicitly when a user
+        SSHes through the gateway; if their session fails we'd surface that
+        via janitor logs)
+
+    The frontend polls this every 8 seconds, so cheap is mandatory.
+    """
+    device = (
+        await db.execute(
+            select(Device).options(selectinload(Device.plug))
+            .where(Device.id == device_id)
+        )
+    ).scalar_one_or_none()
+    if device is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "DEVICE_NOT_FOUND"})
+
+    now = datetime.now(timezone.utc)
+
+    # Active or imminent booking: start_time ≤ now < end_time and status not
+    # cancelled/no_show/completed. Catches both "scheduled but in-window"
+    # (user hasn't clicked Connect yet — still occupied for everyone else)
+    # and "active" (user has clicked Connect, session minted).
+    cur_row = (
+        await db.execute(
+            select(Booking, User.full_name, User.email, User.student_code)
+            .join(User, User.id == Booking.user_id)
+            .where(
+                Booking.device_id == device_id,
+                Booking.start_time <= now,
+                Booking.end_time > now,
+                Booking.status.in_([BookingStatus.SCHEDULED, BookingStatus.ACTIVE]),
+            )
+            .order_by(Booking.start_time)
+            .limit(1)
+        )
+    ).first()
+
+    current_booking = None
+    is_my_booking = False
+    if cur_row:
+        b, full_name, email, code = cur_row
+        current_booking = {
+            "booking_id": str(b.id),
+            "user_name": full_name,
+            "user_email": email,
+            "student_code": code,
+            "start_time": b.start_time.isoformat(),
+            "end_time": b.end_time.isoformat(),
+        }
+        is_my_booking = b.user_id == user.id
+
+    next_row = (
+        await db.execute(
+            select(Booking.start_time, Booking.end_time)
+            .where(
+                Booking.device_id == device_id,
+                Booking.start_time > now,
+                Booking.status.in_([BookingStatus.SCHEDULED, BookingStatus.ACTIVE]),
+            )
+            .order_by(Booking.start_time)
+            .limit(1)
+        )
+    ).first()
+    next_booking = (
+        {"start_time": next_row[0].isoformat(), "end_time": next_row[1].isoformat()}
+        if next_row
+        else None
+    )
+
+    # Cheap reachability heuristic — see docstring above.
+    reachable = (
+        device.power_state == DevicePowerState.ON
+        and device.status != DeviceStatus.OFFLINE
+    )
+
+    return {
+        "device_id": str(device.id),
+        "checked_at": now.isoformat(),
+        "ssh_host": str(device.internal_ip),
+        "ssh_port": device.ssh_port,
+        "reachable": reachable,
+        "latency_ms": None,  # not probed
+        "db_status": device.status.value,
+        "power_state": device.power_state.value,
+        "current_booking": current_booking,
+        "is_my_booking": is_my_booking,
+        "next_booking": next_booking,
+        "has_plug": device.plug is not None,
+    }
 
 
 @router.get("/{device_id}/availability")

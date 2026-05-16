@@ -531,26 +531,25 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
                 <WifiOff className="h-4 w-4" />
                 Kit không phản hồi
               </button>
-              {/* User vẫn cần báo reset khi kit đơ — backend tự lọc quyền
-                  qua reset-request access check. Auto-approve nếu là owner. */}
-              <button
-                type="button"
-                onClick={resetPlug}
-                disabled={resetting}
-                title={
-                  isOwner
-                    ? "Bạn đang có booking active — auto-approve sau khi gửi"
-                    : "GV/admin sẽ duyệt rồi power-cycle kit"
-                }
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
-              >
-                {resetting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Power className="h-4 w-4" />
-                )}
-                Yêu cầu reset kit đơ
-              </button>
+              {/* Reset chỉ hiện khi user là người đang chiếm slot — tránh
+                  user random spam reset cho kit không liên quan. Backend
+                  cũng kiểm tra quyền nhưng UI cần tighten lên cùng. */}
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={resetPlug}
+                  disabled={resetting}
+                  title="Bạn đang có slot active — auto-approve sau khi gửi"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                >
+                  {resetting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Power className="h-4 w-4" />
+                  )}
+                  Yêu cầu reset kit đơ
+                </button>
+              )}
             </>
           )}
 

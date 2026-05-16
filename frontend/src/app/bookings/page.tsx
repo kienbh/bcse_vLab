@@ -90,6 +90,13 @@ function BookingsInner() {
     data: SessionResult;
     bookingId: string;
   } | null>(null);
+  // Tick once every 20s so the Connect button auto-transitions from
+  // "Chưa tới giờ" → green at start_time without the user having to F5.
+  const [, setNowTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((t) => t + 1), 20_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
