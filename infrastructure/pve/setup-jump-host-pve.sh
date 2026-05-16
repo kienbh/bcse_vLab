@@ -151,14 +151,20 @@ TARGET_HOST=$(echo "$RESP" | jq -r '.target_host')
 TARGET_PORT=$(echo "$RESP" | jq -r '.target_port')
 TARGET_USER=$(echo "$RESP" | jq -r '.target_user')
 SESSION_ID=$(echo "$RESP" | jq -r '.session_id')
+EXPIRES_AT=$(echo "$RESP" | jq -r '.expires_at')
 
-# Notify backend that the actual shell session is starting — backend uses
-# this to record PID + pty so the janitor can kill on expiry. Bumped from
-# 3s to 10s to match /auth (the curl was timing out under bcrypt load and
-# leaving active_pid NULL, which made janitor revoke unable to kill).
-# Only set PTY when stdin really is a terminal — otherwise `tty` writes
-# the literal string "not a tty" to stdout (rc=1, but redirecting stderr
-# doesn't help), which pollutes the DB and confuses the janitor banner.
+# How many seconds until the slot ends? Enforce via local `timeout` so we
+# don't depend on the backend SSH-ing back to PVE to kill on expiry.
+EXPIRES_EPOCH=$(date -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
+NOW_EPOCH=$(date +%s)
+DURATION=$(( EXPIRES_EPOCH - NOW_EPOCH ))
+if [[ $DURATION -le 0 ]]; then
+    echo "Phiên đã hết hạn." >&2
+    exit 1
+fi
+
+# Best-effort: tell backend we're starting (PID + pty for audit + future
+# remote-kill fallback). Only set PTY when stdin really is a terminal.
 if [[ -t 0 ]]; then PTY="$(tty)"; else PTY=""; fi
 curl -sS --max-time 10 --connect-timeout 4 \
     -H 'Content-Type: application/json' \
@@ -167,25 +173,30 @@ curl -sS --max-time 10 --connect-timeout 4 \
         '{session_id:$s, pid:$p, pty_path:$pty, client_ip:$ip}')" \
     "${BACKEND_URL%/}/api/gateway/session-start" >/dev/null 2>&1 || true
 
-# Trap exit to flush session-end
-cleanup() {
-    curl -sS --max-time 10 --connect-timeout 4 \
-        -H 'Content-Type: application/json' \
-        -H "X-Gateway-Secret: ${GATEWAY_SHARED_SECRET}" \
-        -d "$(jq -nc --arg s "$SESSION_ID" '{session_id:$s, bytes_in:0, bytes_out:0}')" \
-        "${BACKEND_URL%/}/api/gateway/session-end" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
+# 5-min warning: fork a background sleeper that writes a banner to the
+# user's pty once. After we `exec` below, this subshell is reparented to
+# init but keeps the original fd 1/2 pointing at the gateway pty, so
+# printf still reaches the user. Skip if slot is shorter than 5 min.
+if [[ $DURATION -gt 300 ]]; then
+    WARN_AFTER=$(( DURATION - 300 ))
+    (
+        sleep $WARN_AFTER
+        printf '\r\n\r\n*** [VJU Lab Portal] Phi\xc3\xaan SSH s\xe1\xba\xbd k\xe1\xba\xbft th\xc3\xbac trong 5 ph\xc3\xbat. L\xc6\xb0u c\xc3\xb4ng vi\xe1\xbb\x87c c\xe1\xbb\xa7a b\xe1\xba\xa1n. ***\r\n\r\n' >&1
+    ) &
+    disown $! 2>/dev/null || true
+fi
 
-# Hand off — `exec` makes the ssh process replace this script, so the
-# kill -HUP <pid> from the janitor reaches the actual SSH connection.
-exec ssh \
-    -i "${KIT_KEY_PATH}" \
-    -p "${TARGET_PORT}" \
-    -o StrictHostKeyChecking=accept-new \
-    -o UserKnownHostsFile=/var/lib/vlab/.ssh/known_hosts \
-    -o ServerAliveInterval=30 \
-    "${TARGET_USER}@${TARGET_HOST}"
+# Hand off — `exec timeout` makes ssh the foreground process, and the
+# kernel kills it with SIGHUP (then SIGKILL after 5s) at $DURATION
+# seconds. User experiences "Connection closed" exactly at expires_at.
+# No round-trip to backend or janitor SSH-from-backend needed.
+exec timeout --signal=HUP --kill-after=5 "${DURATION}s" \
+    ssh -i "${KIT_KEY_PATH}" \
+        -p "${TARGET_PORT}" \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile=/var/lib/vlab/.ssh/known_hosts \
+        -o ServerAliveInterval=30 \
+        "${TARGET_USER}@${TARGET_HOST}"
 JUMPSH
 chmod 755 /usr/local/bin/vlab-jump.sh
 install -d -m 700 -o vlab -g vlab /var/lib/vlab/.ssh

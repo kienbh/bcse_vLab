@@ -71,6 +71,28 @@ function DevicesInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
+      {/* Top-down photo of the 9-Kria pool — flat-lay aesthetic */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+        <img
+          src="/images/lab-grid-isometric.png"
+          alt="Pool 9 Xilinx Kria + dây mạng tại lab Hoà Lạc"
+          className="h-44 w-full object-cover md:h-56"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-950/30 to-transparent" />
+        <div className="absolute inset-0 flex flex-col justify-center px-5 md:px-8">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90">
+            Hoà Lạc · Hardware Lab
+          </p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white drop-shadow md:text-3xl">
+            Thiết bị có thể đặt
+          </h1>
+          <p className="mt-1 max-w-md text-xs text-slate-200/90 md:text-sm">
+            FPGA Kria · Jetson · Raspberry Pi — chọn kit + đặt slot + SSH
+            qua gateway, không cần VPN.
+          </p>
+        </div>
+      </div>
+
       <div className="surface flex flex-wrap items-center justify-between gap-3 border-vju-200 bg-gradient-to-r from-vju-50 to-white p-4 dark:border-vju-900/40 dark:from-vju-900/20 dark:to-slate-950">
         <p className="text-sm">
           <span className="font-semibold">Dashboard tổng hợp.</span> Để có giao diện

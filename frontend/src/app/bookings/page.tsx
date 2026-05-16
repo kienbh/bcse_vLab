@@ -186,8 +186,27 @@ function BookingsInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
+      {/* Decorative circuit-art banner — Xilinx Kria pool aesthetic */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+        <img
+          src="/images/lab-circuit-art.png"
+          alt=""
+          aria-hidden="true"
+          className="h-32 w-full object-cover md:h-40"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/40 to-transparent" />
+        <div className="absolute inset-0 flex flex-col justify-center px-5 md:px-8">
+          <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow md:text-3xl">
+            <L k="page.bookings.title" />
+          </h1>
+          <p className="mt-1 text-xs text-vju-100/90 md:text-sm">
+            {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
+          </p>
+        </div>
+      </div>
+
       <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="md:hidden">
           <h1 className="text-3xl font-bold tracking-tight">
             <L k="page.bookings.title" />
           </h1>
@@ -195,6 +214,7 @@ function BookingsInner() {
             {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
           </p>
         </div>
+        <div className="hidden md:block" />
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
             <button

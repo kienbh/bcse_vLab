@@ -86,36 +86,36 @@ export default function HomePage() {
         </div>
 
         <div className="relative hidden md:block">
-          <div className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-vju-500/10 via-transparent to-accent-500/10 blur-3xl" />
-          <div className="surface relative grid grid-cols-2 gap-3 p-4">
-            {FEATURES.slice(0, 4).map((f, i) => (
-              <Link
-                key={i}
-                href={f.href}
-                className={`group relative overflow-hidden rounded-xl bg-gradient-to-br ${f.color} p-4 text-white shadow-md transition hover:-translate-y-0.5 hover:shadow-lg`}
-              >
-                <div className="flex items-center justify-between">
-                  {f.icon}
-                  <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-mono uppercase">
-                    {f.count}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm font-semibold leading-snug">
-                  <L k={f.titleKey} />
-                </p>
-                <span className="mt-1 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider opacity-0 transition group-hover:opacity-90">
-                  Mở dashboard →
-                </span>
-              </Link>
-            ))}
-            <div className="col-span-2 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-              <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                <Workflow className="h-4 w-4" /> ARCHITECTURE
-              </div>
-              <p className="mt-1 font-mono text-xs text-slate-700 dark:text-slate-300">
-                Cloudflare → SV08 nginx → SV14 Docker stack → Hòa Lạc lab pool
+          <div className="absolute inset-0 -z-10 rounded-3xl bg-gradient-to-br from-vju-500/20 via-transparent to-accent-500/20 blur-3xl" />
+          {/* Photo of the actual lab rack in Hoà Lạc — Xilinx Kria pool */}
+          <div className="relative overflow-hidden rounded-3xl border border-slate-200 shadow-xl dark:border-slate-700">
+            <img
+              src="/images/lab-hero-cinematic.png"
+              alt="Pool kit Xilinx Kria tại lab Hoà Lạc"
+              className="aspect-[4/3] w-full object-cover"
+            />
+            {/* Gradient bottom for caption readability */}
+            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
+            <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
+              <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90">
+                Hoà Lạc · Live
+              </p>
+              <p className="mt-1 text-base font-semibold leading-snug drop-shadow">
+                9 Xilinx Kria KV260 + Jetson + Raspberry Pi pool
+              </p>
+              <p className="mt-1 inline-flex items-center gap-1.5 text-[11px] text-emerald-300">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                Sẵn sàng đặt slot 24/7
               </p>
             </div>
+          </div>
+          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <Workflow className="h-4 w-4" /> ARCHITECTURE
+            </div>
+            <p className="mt-1 font-mono text-xs text-slate-700 dark:text-slate-300">
+              Cloudflare → SV08 nginx → SV14 Docker → Hoà Lạc lab pool
+            </p>
           </div>
         </div>
       </section>

@@ -57,8 +57,18 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-8 px-4 py-16 md:py-24">
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-vju-500 to-vju-700 text-white shadow-md">
+    <div className="mx-auto flex max-w-md flex-col items-center gap-6 px-4 py-12 md:py-16">
+      {/* Decorative lab stack — clean navy mood */}
+      <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+        <img
+          src="/images/lab-stack-minimal.png"
+          alt=""
+          aria-hidden="true"
+          className="h-32 w-full object-cover"
+        />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent" />
+      </div>
+      <div className="grid h-14 w-14 -mt-12 place-items-center rounded-2xl bg-gradient-to-br from-vju-500 to-vju-700 text-white shadow-lg ring-4 ring-white dark:ring-slate-950">
         <ShieldCheck className="h-7 w-7" />
       </div>
       <div className="space-y-2 text-center">
