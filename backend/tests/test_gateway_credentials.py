@@ -26,7 +26,7 @@ from app.models import (
 from app.services import gateway_credentials
 
 
-PASSWORD_RE = re.compile(r"^[abcdefghkmnpqrstuvwxyz23456789]{4}-[abcdefghkmnpqrstuvwxyz23456789]{4}-[abcdefghkmnpqrstuvwxyz23456789]{4}$")
+PASSWORD_RE = re.compile(r"^[abcdefghkmnpqrstuvwxyz23456789]{12}$")
 
 
 @pytest_asyncio.fixture

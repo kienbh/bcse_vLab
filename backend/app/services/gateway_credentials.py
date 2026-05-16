@@ -32,17 +32,16 @@ from app.models import Booking, Device, GatewayAuthLog, GatewaySession
 
 
 PASSWORD_ALPHABET = "abcdefghkmnpqrstuvwxyz23456789"
-PASSWORD_GROUP_LEN = 4
-PASSWORD_GROUPS = 3
+PASSWORD_LENGTH = 12
 
 
 def generate_password() -> str:
-    """Sinh password 12 ký tự dạng xxxx-xxxx-xxxx — unambiguous alphabet."""
-    groups = [
-        "".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(PASSWORD_GROUP_LEN))
-        for _ in range(PASSWORD_GROUPS)
-    ]
-    return "-".join(groups)
+    """Sinh password 12 ký tự liền — unambiguous alphabet (bỏ 0/o/1/l/i/j).
+
+    Không dùng dấu phân cách (em-dash hazard khi paste qua một số terminal /
+    rich-text clipboard). 12 chars * log2(30) ≈ 59 bits — đủ cho session ≤ 8h.
+    """
+    return "".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(PASSWORD_LENGTH))
 
 
 def _hash(plain: str) -> str:

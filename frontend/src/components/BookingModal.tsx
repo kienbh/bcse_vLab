@@ -409,9 +409,18 @@ export function SessionLaunchModal({
               Password (cố định suốt slot)
             </p>
             <div className="flex items-stretch gap-0 overflow-hidden rounded-md border-2 border-emerald-400 bg-slate-900">
-              <pre className="flex-1 select-all px-4 py-3 font-mono text-xl font-bold tracking-wider text-emerald-300">
-                {showPw ? current.password : "••••-••••-••••"}
-              </pre>
+              {/* Plain <input readOnly> avoids rich-text quirks that some
+                  password managers / browsers add to <pre>. Click = select-all. */}
+              <input
+                readOnly
+                value={showPw ? current.password : "••••••••••••"}
+                onFocus={(e) => e.currentTarget.select()}
+                onClick={(e) => e.currentTarget.select()}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+                className="flex-1 border-0 bg-slate-900 px-4 py-3 font-mono text-xl font-bold text-emerald-300 focus:outline-none"
+              />
               <button
                 type="button"
                 onClick={() => setShowPw((v) => !v)}
