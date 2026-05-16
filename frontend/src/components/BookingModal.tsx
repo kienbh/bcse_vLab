@@ -394,20 +394,34 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
             </div>
 
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-              <p className="font-semibold mb-1">📋 Hướng dẫn nhanh (terminal Linux/Mac):</p>
+              <p className="font-semibold mb-2">📋 Hướng dẫn nhanh — chọn theo OS:</p>
+
+              <p className="mb-1 mt-2 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                🪟 Windows PowerShell (sau khi đã Copy key ở Bước 2):
+              </p>
               <pre className="overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300">
-{`# 1. Lưu key (đã copy ở Bước 2):
+{`mkdir $env:USERPROFILE\\.ssh -ErrorAction SilentlyContinue
+$key = Get-Clipboard -Raw
+[System.IO.File]::WriteAllText("$env:USERPROFILE\\.ssh\\vju-session", $key)
+icacls "$env:USERPROFILE\\.ssh\\vju-session" /inheritance:r /grant:r "$\{env:USERNAME\}:F"
+ssh -i "$env:USERPROFILE\\.ssh\\vju-session" ${session.ssh_user}@${session.ssh_host}`}
+              </pre>
+
+              <p className="mb-1 mt-3 text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                🐧 Linux / 🍎 Mac (terminal bash/zsh):
+              </p>
+              <pre className="overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300">
+{`mkdir -p ~/.ssh
 cat > ~/.ssh/vju-session <<'EOF'
 <paste private key vào đây>
 EOF
 chmod 600 ~/.ssh/vju-session
-
-# 2. SSH vào FPGA:
 ssh -i ~/.ssh/vju-session -p ${session.ssh_port} ${session.ssh_user}@${session.ssh_host}`}
               </pre>
-              <p className="mt-2 text-slate-500">
-                Trên Windows: dùng PowerShell hoặc Git Bash, đường dẫn key tương tự.
-                Hết giờ slot, gateway tự revoke key → SSH disconnected.
+
+              <p className="mt-2 text-[10px] text-slate-500">
+                ⚠ Hết giờ slot, gateway tự revoke key → SSH session disconnected.
+                Key chỉ valid trong khung giờ booking của bạn.
               </p>
             </div>
 
