@@ -150,6 +150,13 @@ function BookingsInner() {
 
   const selectedDevice = selectedDeviceId ? devices.get(selectedDeviceId) ?? null : null;
 
+  // Hide cancelled bookings from default list view — they're not actionable
+  // and just add noise. Backend still keeps the row for audit.
+  const visibleBookings = useMemo(
+    () => bookings.filter((b) => b.status !== "cancelled"),
+    [bookings],
+  );
+
   const openBookingFromCell = (start: Date, end?: Date) => {
     if (!selectedDevice) return;
     // Single-cell click defaults to 1 hour; drag-selected range supplies end.
@@ -169,7 +176,7 @@ function BookingsInner() {
             <L k="page.bookings.title" />
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            {loading ? "Loading..." : `${bookings.length} lịch của bạn`}
+            {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -204,7 +211,7 @@ function BookingsInner() {
       {loading ? (
         <div className="surface h-40 animate-pulse" />
       ) : view === "list" ? (
-        bookings.length === 0 ? (
+        visibleBookings.length === 0 ? (
           <div className="surface flex flex-col items-center justify-center gap-3 p-12 text-center">
             <Inbox className="h-10 w-10 text-slate-300" />
             <h2 className="text-base font-semibold">
@@ -216,7 +223,7 @@ function BookingsInner() {
           </div>
         ) : (
           <ul className="space-y-3">
-            {bookings.map((b) => {
+            {visibleBookings.map((b) => {
               const d = devices.get(b.device_id);
               const now = Date.now();
               const start = new Date(b.start_time).getTime();

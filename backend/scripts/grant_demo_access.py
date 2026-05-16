@@ -23,21 +23,20 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.db import async_session_maker
+from app.core.db import session_factory
 from app.models import Device, SpecialAccess, User
 
 
 DEFAULT_DEVICE_NAMES = ["kv260-lab01", "kv260-lab02", "kv260-lab03"]
 DEMO_VALIDITY_DAYS = 30
 DEMO_WEEKLY_HOURS_LIMIT = 40
-DEMO_MAX_CONCURRENT = 2
 DEMO_REASON = "Pilot demo — admin test access (M5.5-M5.6)"
 
 
 async def grant(email: str, device_names: list[str]) -> int:
     """Returns number of newly-created special_access rows."""
     created = 0
-    async with async_session_maker() as db:
+    async with session_factory()() as db:
         user = (
             await db.execute(select(User).where(User.email == email.lower()))
         ).scalar_one_or_none()
@@ -76,7 +75,6 @@ async def grant(email: str, device_names: list[str]) -> int:
                 valid_to=until,
                 allowed_time_windows=[],
                 weekly_hours_limit=DEMO_WEEKLY_HOURS_LIMIT,
-                max_concurrent_bookings=DEMO_MAX_CONCURRENT,
                 reason=DEMO_REASON,
                 granted_by=user.id,
             )

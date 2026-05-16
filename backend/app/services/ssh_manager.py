@@ -21,6 +21,7 @@ import asyncio
 import base64
 import hashlib
 import os
+import shlex
 from dataclasses import dataclass
 
 import asyncssh
@@ -96,7 +97,7 @@ async def provision_session(
     # Real path: SSH to device + append to authorized_keys
     cmd = (
         "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
-        f"echo {asyncssh.misc.shell_quote(public_line)} >> ~/.ssh/authorized_keys && "
+        f"echo {shlex.quote(public_line)} >> ~/.ssh/authorized_keys && "
         "chmod 600 ~/.ssh/authorized_keys"
     )
     async with asyncssh.connect(
@@ -129,9 +130,10 @@ async def revoke_session(
         return True
 
     # Use sed -i to delete lines containing the unique tag
+    safe_tag = session_tag.replace("/", r"\/").replace("'", r"\'")
     cmd = (
         "test -f ~/.ssh/authorized_keys && "
-        f"sed -i.bak '/session={asyncssh.misc.shell_quote(session_tag)}/d' ~/.ssh/authorized_keys"
+        f"sed -i.bak '/session={safe_tag}/d' ~/.ssh/authorized_keys"
     )
     try:
         async with asyncssh.connect(
