@@ -76,9 +76,10 @@ async def db(_engine) -> AsyncGenerator[AsyncSession, None]:
         from sqlalchemy import text
         async with _engine.begin() as conn:
             await conn.execute(text(
-                "TRUNCATE bookings, sessions, special_access, class_device_assignments, "
-                "enrollments, classes, plug_mappings, device_credentials, devices, "
-                "user_quotas, audit_logs, users RESTART IDENTITY CASCADE"
+                "TRUNCATE gateway_auth_log, gateway_sessions, bookings, sessions, "
+                "special_access, class_device_assignments, enrollments, classes, "
+                "plug_mappings, device_credentials, devices, user_quotas, audit_logs, "
+                "users RESTART IDENTITY CASCADE"
             ))
 
 

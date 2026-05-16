@@ -5,6 +5,7 @@ from app.models.base import Base, TimestampMixin
 from app.models.booking import Booking, Session
 from app.models.class_ import Class, ClassDeviceAssignment, Enrollment
 from app.models.device import Device, DeviceCredential, PlugMapping
+from app.models.gateway import GatewayAuthLog, GatewaySession
 from app.models.enums import (
     BookingGrantedVia,
     BookingStatus,
@@ -33,6 +34,8 @@ __all__ = [
     "SpecialAccess",
     "Booking",
     "Session",
+    "GatewaySession",
+    "GatewayAuthLog",
     "AuditLog",
     "UserQuota",
     "ResetRequest",
