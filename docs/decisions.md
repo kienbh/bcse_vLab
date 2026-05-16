@@ -338,6 +338,43 @@ Cụ thể:
 
 ---
 
+## ADR-0013: Gateway redesign — password ProxyJump thay vì ephemeral keypair
+
+**Date**: 2026-05-16
+**Status**: Accepted (supersedes phần access của M5.7 ephemeral-key flow)
+**Decided by**: Thầy Kiên + Claude Code
+**Spec đầy đủ**: `docs/13-gateway-redesign.md`
+
+### Context
+M5.7 phát ed25519 keypair cho từng user mỗi lần "Connect": backend mint key, trả `private_key` về frontend, user copy/download key, paste vào MobaXterm cùng lệnh `ssh -i key -J ...`. Thầy phản hồi: "cơ chế chính của cổng này — ko tạo thêm việc phát sinh rườm rà của người dùng. Thông thường SSH vào FPGA từ Internet chỉ cần jump qua 1 IP tĩnh ở Hoà Lạc và nhảy vào dùng rất tiện." Nhiệm vụ cổng là quản lý luồng hoạt động, không phải phức tạp hoá kết nối.
+
+### Decision
+- Bỏ flow ed25519 ephemeral. Thay bằng **password 12 ký tự** (3 nhóm 4 chữ, alphabet không nhập nhằng), bcrypt-hash trong `gateway_sessions.password_hash`.
+- Web hiển thị password **đúng 1 lần** + lệnh `ssh -p 2222 vlab@ssh.bcse-vju.com` ready-to-paste.
+- Jump host (PVE) có **user `vlab` tĩnh duy nhất**. PAM `pam_exec` POST password sang backend `/api/gateway/auth` để verify. ForceCommand wrapper resolve target từ backend, exec `ssh -i backend_key pi@<kit>`. User nhập 1 password → vào thẳng kit.
+- Worker `gateway_janitor` chạy 30s/tick: 5 phút trước hết slot → banner vào pty; tới giờ → revoke + kill PID.
+
+### Alternatives considered
+- **Giữ ed25519 (M5.7)**: tốt crypto nhưng user phải lưu file key — phá UX mục tiêu, là lý do trực tiếp thầy yêu cầu redesign.
+- **OIDC/SSH cert**: user phải setup ssh-agent + CA cert — rườm rà hơn. Out of scope pilot.
+- **ProxyJump thuần với password kit chia sẻ**: đơn giản nhất nhưng password kit (pi/student) là cố định, sẽ leak. Loại.
+- **Bastion + ForceCommand wrapper (chọn)**: 1 password ngắn, hết hạn theo slot, key kit không rời backend. Trade-off: backend đứng giữa mỗi auth attempt (bcrypt scan) — chấp nhận được với <100 booking active.
+
+### Consequences
+- ✅ User chỉ cần OpenSSH CLI hoặc MobaXterm — không cài thêm gì, không lưu file key.
+- ✅ Password hết hạn đúng `end_time` của booking; mọi attempt sau đó PAM từ chối.
+- ✅ Key kit nằm trên jump host, không trên máy user → không leak.
+- ✅ Audit `gateway_auth_log` ghi mọi attempt + outcome.
+- ❌ Patch `/etc/pam.d/sshd` trên PVE (rủi ro nếu sai) — mitigation: setup script backup + marker rollback rõ.
+- ❌ Bcrypt scan linear với số session active — nếu lên >1000 đồng thời cần prefix index. Pilot không vướng.
+- 🔄 Nếu cần SFTP/SCP, có thể thêm `Match User vlab-sftp` riêng.
+
+### Open follow-ups
+- Mock kit container cần backend pubkey mount qua `infrastructure/sv14/secrets/backend_admin.pub` — chưa có Makefile sinh tự động.
+- Smoke test thủ công sau deploy PVE script (xem section 7 của `docs/13-gateway-redesign.md`).
+
+---
+
 ## Template cho ADR mới
 
 Khi Claude Code có quyết định kiến trúc mới, append vào file này theo format:

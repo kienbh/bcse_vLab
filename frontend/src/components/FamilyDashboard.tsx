@@ -147,7 +147,10 @@ function FamilyInner({
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Device | null>(null);
-  const [session, setSession] = useState<SessionResult | null>(null);
+  const [session, setSession] = useState<{
+    data: SessionResult;
+    bookingId: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -169,24 +172,20 @@ function FamilyInner({
     load();
   }, [load]);
 
-  const connect = async (device: Device, bookingId: string) => {
-    const r = await fetch(`${API}/sessions/provision/${bookingId}`, {
+  const connect = async (_device: Device, bookingId: string) => {
+    // ADR-0013: backend mints a password for this booking and returns the
+    // full ssh command. Password is in the response body once.
+    const r = await fetch(`${API}/bookings/${bookingId}/access`, {
       method: "POST",
       credentials: "include",
     });
     if (r.ok) {
       const data = (await r.json()) as SessionResult;
-      setSession(data);
+      setSession({ data, bookingId });
     } else {
       const e = await r.json().catch(() => ({}));
       const code = e?.detail?.code ?? "ERROR";
-      if (code === "SESSION_EXISTS") {
-        alert(
-          "Session đã được provision trước đó cho slot này. Vào tab Bookings để mở terminal.",
-        );
-      } else {
-        alert(`Không mở được session: ${code}`);
-      }
+      alert(`Không lấy được password: ${code}`);
     }
   };
 
@@ -274,7 +273,14 @@ function FamilyInner({
         />
       )}
       {session && (
-        <SessionLaunchModal session={session} onClose={() => setSession(null)} />
+        <SessionLaunchModal
+          session={session.data}
+          bookingId={session.bookingId}
+          onSessionReplaced={(next) =>
+            setSession({ data: next, bookingId: session.bookingId })
+          }
+          onClose={() => setSession(null)}
+        />
       )}
     </div>
   );

@@ -86,7 +86,10 @@ function BookingsInner() {
     start?: string;
     end?: string;
   } | null>(null);
-  const [sessionOpen, setSessionOpen] = useState<SessionResult | null>(null);
+  const [sessionOpen, setSessionOpen] = useState<{
+    data: SessionResult;
+    bookingId: string;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -133,25 +136,26 @@ function BookingsInner() {
   };
 
   const connect = async (id: string) => {
-    const r = await fetch(`${API}/sessions/provision/${id}`, { method: "POST", credentials: "include" });
+    // ADR-0013: ask backend for the gateway session (password + ssh command).
+    // The password is in the response body once — modal must show it before close.
+    const r = await fetch(`${API}/bookings/${id}/access`, {
+      method: "POST",
+      credentials: "include",
+    });
     if (r.ok) {
       const data = (await r.json()) as SessionResult;
-      // Embed the wetty terminal inline inside a modal — no new tab.
-      // SV14 wetty container is the gateway; iframe loads through the
-      // same Cloudflare Tunnel as the portal.
-      setSessionOpen(data);
+      setSessionOpen({ data, bookingId: id });
     } else {
       const e = await r.json().catch(() => ({}));
       const code = e?.detail?.code ?? "ERROR";
       const friendly: Record<string, string> = {
-        SESSION_EXISTS: "Phiên SSH cũ chưa được dọn — em đang rotate key, thử lại sau 2 giây.",
         BOOKING_NOT_ACTIVATABLE: "Booking không ở trạng thái có thể kết nối (đã huỷ / hoàn thành).",
         BOOKING_NOT_STARTED_YET: "Chưa tới giờ slot. Vào /bookings đợi countdown.",
         BOOKING_EXPIRED: "Slot này đã hết giờ.",
         BOOKING_NOT_FOUND: "Không tìm thấy booking.",
         DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
       };
-      alert(friendly[code] ?? `Không mở được session: ${code}`);
+      alert(friendly[code] ?? `Không lấy được password: ${code}`);
     }
   };
 
@@ -317,7 +321,11 @@ function BookingsInner() {
 
       {sessionOpen && (
         <SessionLaunchModal
-          session={sessionOpen}
+          session={sessionOpen.data}
+          bookingId={sessionOpen.bookingId}
+          onSessionReplaced={(next) =>
+            setSessionOpen({ data: next, bookingId: sessionOpen.bookingId })
+          }
           onClose={() => setSessionOpen(null)}
         />
       )}
