@@ -142,6 +142,7 @@ services:
     command: >
       --base /term/
       --port 3000
+      --title "VJU Lab Terminal"
       --allow-iframe true
       --allow-remote-hosts true
       --ssh-key /keys/portal_admin_ed25519

@@ -356,6 +356,7 @@ function PasswordBlock({ password }: { password: string }) {
 
 export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps) {
   const [copied, setCopied] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const copyKey = async () => {
     try {
       await navigator.clipboard.writeText(session.private_key);
@@ -368,31 +369,114 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4"
       onClick={onClose}
     >
       <div
-        className="surface w-full max-w-2xl overflow-hidden p-0"
+        className="surface flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-4 text-white dark:border-slate-700">
-          <div>
+        <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-white dark:border-slate-700">
+          <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-              Session sẵn sàng {session.mocked && "(mock — backend chưa thấy device)"}
+              Terminal · phiên qua gateway SV14 {session.mocked && "(mock)"}
             </p>
-            <h2 className="text-lg font-bold leading-tight">
-              SSH {session.ssh_user}@{session.ssh_host}:{session.ssh_port}
+            <h2 className="truncate text-base font-bold leading-tight">
+              {session.ssh_user}@{session.ssh_host}:{session.ssh_port}
             </h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
-            aria-label="Close"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((v) => !v)}
+              className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/20"
+            >
+              {showAdvanced ? "Ẩn options" : "SSH client / Password"}
+            </button>
+            <a
+              href={session.wetty_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/20"
+              title="Mở terminal trong tab mới (toàn màn hình)"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Tab mới
+            </a>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </header>
+
+        {/* Inline terminal — wetty embedded via iframe through the same
+            Cloudflare Tunnel + SV14 gateway. No new browser tab needed. */}
+        <iframe
+          src={session.wetty_url}
+          title="VJU Lab Terminal"
+          className="flex-1 w-full border-0 bg-black"
+          allow="clipboard-read; clipboard-write"
+        />
+
+        {showAdvanced && (
+          <div className="max-h-[40vh] overflow-y-auto border-t border-slate-200 bg-slate-50 px-5 py-4 text-xs dark:border-slate-700 dark:bg-slate-900/50">
+            <div className="space-y-3">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                Power-user · SSH client native (cần route LAN / VPN tới {session.ssh_host})
+              </p>
+              <div>
+                <p className="mb-1 text-[11px] font-semibold text-slate-500">Lệnh SSH:</p>
+                <SshCommandBlockSimple
+                  user={session.ssh_user}
+                  host={session.ssh_host}
+                  port={session.ssh_port}
+                />
+              </div>
+              {session.password && (
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold text-slate-500">Password:</p>
+                  <PasswordBlock password={session.password} />
+                </div>
+              )}
+              <details className="rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
+                <summary className="cursor-pointer px-2 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                  <KeyRound className="mr-1 inline h-3 w-3" />
+                  Hoặc dùng private key
+                </summary>
+                <div className="space-y-1 px-2 py-2">
+                  <button
+                    type="button"
+                    onClick={copyKey}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold dark:border-slate-600 dark:bg-slate-700"
+                  >
+                    {copied ? "✓ Copied" : "Copy private key"}
+                  </button>
+                  <textarea
+                    readOnly
+                    value={session.private_key}
+                    rows={5}
+                    onFocus={(e) => e.currentTarget.select()}
+                    className="block w-full rounded-md border border-slate-300 bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300 dark:border-slate-700"
+                  />
+                </div>
+              </details>
+              <p className="text-[10px] text-slate-500">
+                Hết slot, sweeper revoke key + reset password trên KIT. Fingerprint:{" "}
+                <code className="font-mono">{session.fingerprint}</code>
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
         <div className="space-y-4 p-5">
           {/* Pattern A (pilot): wetty browser terminal as primary CTA.

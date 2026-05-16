@@ -136,13 +136,10 @@ function BookingsInner() {
     const r = await fetch(`${API}/sessions/provision/${id}`, { method: "POST", credentials: "include" });
     if (r.ok) {
       const data = (await r.json()) as SessionResult;
-      // Open modal first so user sees the session info + auto-launch the
-      // wetty terminal in a new tab (Pattern A: SV14 wetty container is the
-      // gateway for remote users — no SSH client needed).
+      // Embed the wetty terminal inline inside a modal — no new tab.
+      // SV14 wetty container is the gateway; iframe loads through the
+      // same Cloudflare Tunnel as the portal.
       setSessionOpen(data);
-      if (data.wetty_url) {
-        window.open(data.wetty_url, "_blank", "noopener");
-      }
     } else {
       const e = await r.json().catch(() => ({}));
       const code = e?.detail?.code ?? "ERROR";
