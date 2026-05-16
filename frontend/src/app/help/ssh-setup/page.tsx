@@ -109,8 +109,9 @@ export default function SshSetupHelpPage() {
         </h2>
         <ul className="ml-5 list-disc space-y-1 text-sm text-emerald-900 dark:text-emerald-200">
           <li>
-            Password chỉ <strong>hiện 1 lần</strong> — lưu vào password
-            manager. Mất ⇒ bấm <em>Regenerate</em> trong modal.
+            Password <strong>cố định trong suốt slot</strong> — mở lại modal
+            (bấm <em>Get SSH access</em>) bất cứ lúc nào để xem lại. Cần
+            đổi mới? Bấm <em>Regenerate</em>.
           </li>
           <li>
             Password tự hết hạn đúng giờ kết thúc slot. Sau đó: mọi attempt

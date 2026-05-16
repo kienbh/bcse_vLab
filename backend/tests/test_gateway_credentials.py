@@ -194,10 +194,29 @@ async def test_verify_password_revoked(db, booking, device):
 
 
 # ---------------------------------------------------------------------------
-# 7. Regenerate — same booking, new password, regenerate_count bumps, old pw dies
+# 7a. Idempotent issue — second call on same booking returns SAME password
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio
-async def test_regenerate_rotates_password(db, booking, device):
+async def test_issue_is_idempotent_within_slot(db, booking, device):
+    first = await gateway_credentials.issue_for_booking(
+        db, booking=booking, device=device
+    )
+    await db.commit()
+    second = await gateway_credentials.issue_for_booking(
+        db, booking=booking, device=device
+    )
+    await db.commit()
+
+    assert second.session.id == first.session.id
+    assert second.password == first.password
+    assert second.session.regenerate_count == first.session.regenerate_count
+
+
+# ---------------------------------------------------------------------------
+# 7b. Force rotate — explicit flag mints new password, bumps regenerate_count
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_force_rotate_changes_password(db, booking, device):
     first = await gateway_credentials.issue_for_booking(
         db, booking=booking, device=device
     )
@@ -206,11 +225,10 @@ async def test_regenerate_rotates_password(db, booking, device):
     old_count = first.session.regenerate_count
 
     second = await gateway_credentials.issue_for_booking(
-        db, booking=booking, device=device
+        db, booking=booking, device=device, force_rotate=True
     )
     await db.commit()
 
-    # Same session row, rotated password
     assert second.session.id == first.session.id
     assert second.password != old_password
     assert second.session.regenerate_count == old_count + 1

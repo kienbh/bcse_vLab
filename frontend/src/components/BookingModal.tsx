@@ -337,7 +337,8 @@ export function SessionLaunchModal({
   const regenerate = async () => {
     if (
       !confirm(
-        "Cấp password mới? Password hiện tại sẽ bị vô hiệu hoá ngay lập tức.",
+        "Cấp password mới? Password hiện tại sẽ bị vô hiệu hoá ngay lập tức " +
+        "(dùng khi password đã lộ hoặc bạn quên).",
       )
     )
       return;
@@ -405,7 +406,7 @@ export function SessionLaunchModal({
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               <KeyRound className="mr-1 inline h-3.5 w-3.5" />
-              Password (hiện 1 lần)
+              Password (cố định suốt slot)
             </p>
             <div className="flex items-stretch gap-0 overflow-hidden rounded-md border-2 border-emerald-400 bg-slate-900">
               <pre className="flex-1 select-all px-4 py-3 font-mono text-xl font-bold tracking-wider text-emerald-300">
@@ -427,8 +428,8 @@ export function SessionLaunchModal({
               </button>
             </div>
             <p className="mt-1.5 text-[11px] text-slate-500">
-              Lưu ngay vào trình quản lý mật khẩu. Đóng modal = mất password,
-              phải <em>Regenerate</em>.
+              Password này có hiệu lực đến hết slot — bấm <em>Get SSH access</em>{" "}
+              bất cứ lúc nào để xem lại.
               {current.regenerate_count > 0 && (
                 <span className="ml-1 text-amber-600 dark:text-amber-400">
                   (đã regenerate {current.regenerate_count} lần)
@@ -513,7 +514,7 @@ export function SessionLaunchModal({
           {/* Regenerate */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
             <p className="text-[11px] text-slate-500">
-              Mất password? Bấm để cấp lại — password cũ bị huỷ ngay.
+              Password lộ hoặc cần đổi? Bấm để rotate — bản cũ huỷ ngay.
             </p>
             <button
               type="button"

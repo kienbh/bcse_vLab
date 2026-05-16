@@ -129,6 +129,7 @@ async def _issue_or_rotate(
     user: User,
     request: Request,
     action: str,
+    force_rotate: bool = False,
 ) -> AccessIssueResponse:
     device = (
         await db.execute(select(Device).where(Device.id == booking.device_id))
@@ -142,6 +143,7 @@ async def _issue_or_rotate(
         booking=booking,
         device=device,
         ssh_username=settings.GATEWAY_SSH_USERNAME,
+        force_rotate=force_rotate,
     )
     if booking.status == BookingStatus.SCHEDULED:
         booking.status = BookingStatus.ACTIVE
@@ -212,7 +214,8 @@ async def regenerate_access(
     booking = await _load_booking_for_owner(db, booking_id, user)
     _validate_booking_window(booking)
     return await _issue_or_rotate(
-        db, booking=booking, user=user, request=request, action="gateway.access.regenerate"
+        db, booking=booking, user=user, request=request,
+        action="gateway.access.regenerate", force_rotate=True,
     )
 
 

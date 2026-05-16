@@ -36,6 +36,10 @@ die() { echo "[setup-jump-pve] FATAL: $*" >&2; exit 1; }
 : "${BACKEND_URL:?must set BACKEND_URL (e.g. https://backend.bcse-vju.com)}"
 : "${GATEWAY_SHARED_SECRET:?must set GATEWAY_SHARED_SECRET (matches backend .env)}"
 KIT_KEY_PATH="${KIT_KEY_PATH:-/etc/vlab/backend_ed25519}"
+# Space-separated `ip:port` list of kits the vlab user is allowed to forward
+# TCP to (used by `ssh -J vlab@gw kit-user@kit-ip`). Default = pilot kit
+# pool on the same LAN as the PVE host. Override with KIT_POOL=... env.
+KIT_POOL="${KIT_POOL:-192.168.2.93:22 192.168.2.100:22 192.168.2.121:22}"
 
 # ------------------------------------------------------------------------- #
 # 1. Tools
@@ -230,10 +234,14 @@ Match User vlab
     AuthenticationMethods password
     AuthorizedKeysFile /dev/null
     PermitTTY yes
-    AllowTcpForwarding no
+    # Two supported UX paths:
+    #   A. `ssh -J vlab@gw kit-user@kit-ip` — direct-tcpip via PermitOpen
+    #   B. `ssh vlab@gw`                    — ForceCommand wrapper auto-jumps
+    AllowTcpForwarding yes
     GatewayPorts no
     X11Forwarding no
     AllowAgentForwarding no
+    PermitOpen ${KIT_POOL}
     ForceCommand /usr/local/bin/vlab-jump.sh
 EOF
 

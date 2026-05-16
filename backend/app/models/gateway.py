@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, LargeBinary, String, text
 from sqlalchemy.dialects.postgresql import INET, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,6 +49,12 @@ class GatewaySession(Base, TimestampMixin):
     )
     ssh_username: Mapped[str] = mapped_column(String(32), nullable=False, default="vlab")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    # AES-256-GCM ciphertext of the plaintext password (`nonce || ct || tag`).
+    # NULL = legacy row from before the persist-per-slot feature; the API
+    # treats it as "rotate on next read" so users aren't locked out.
+    password_ciphertext: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True
+    )
 
     issued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
