@@ -127,17 +127,24 @@ function DevicesAdminInner() {
     }
   };
 
-  const refresh = () => {
-    setLoading(true);
+  const refresh = (silent = false) => {
+    if (!silent) setLoading(true);
     fetch(`${API}/devices`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => {
         setDevices(d);
-        setLoading(false);
+        if (!silent) setLoading(false);
       });
   };
 
-  useEffect(refresh, []);
+  useEffect(() => {
+    refresh();
+    // Auto-poll every 30s so the device_prober's power_state updates
+    // (and any other admin's edits) show up without a manual F5. Silent
+    // mode avoids the loading skeleton flicker.
+    const id = setInterval(() => refresh(true), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   if (!user || user.role !== "admin") {
     return (
