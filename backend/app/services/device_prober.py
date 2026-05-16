@@ -34,7 +34,11 @@ from app.models import (
 )
 
 
-PROBE_INTERVAL_SECONDS = 60
+# 5 minutes is the sweet spot: kit on/off transitions get caught within
+# the same span a user takes to switch tabs back to /devices/fpga, but
+# kit sshd doesn't fill with "Connection closed [preauth]" log lines.
+# At 60s × 9 kits = ~13k probes/day (kit log spam). At 300s = ~2.6k.
+PROBE_INTERVAL_SECONDS = 300
 PROBE_TIMEOUT_SECONDS = 3
 
 
