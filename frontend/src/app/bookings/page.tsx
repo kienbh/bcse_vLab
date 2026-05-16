@@ -150,14 +150,14 @@ function BookingsInner() {
 
   const selectedDevice = selectedDeviceId ? devices.get(selectedDeviceId) ?? null : null;
 
-  const openBookingFromCell = (cellDate: Date) => {
+  const openBookingFromCell = (start: Date, end?: Date) => {
     if (!selectedDevice) return;
-    const end = new Date(cellDate);
-    end.setHours(end.getHours() + 2);
+    // Single-cell click defaults to 1 hour; drag-selected range supplies end.
+    const finalEnd = end ?? new Date(start.getTime() + 60 * 60_000);
     setBookingOpen({
       device: selectedDevice,
-      start: toLocalInput(cellDate),
-      end: toLocalInput(end),
+      start: toLocalInput(start),
+      end: toLocalInput(finalEnd),
     });
   };
 
@@ -304,6 +304,14 @@ const START_HOUR = 7;
 const END_HOUR = 23;
 const TOTAL_ROWS = END_HOUR - START_HOUR;
 
+type DragSelection = {
+  dayKey: string;     // day.toDateString() — same-day enforcement
+  startHour: number;  // inclusive cell hour (07–22)
+  currentHour: number;
+};
+
+const MAX_DURATION_HOURS = 8;
+
 function WeekCalendar({
   devices,
   selectedDeviceId,
@@ -319,7 +327,7 @@ function WeekCalendar({
   onSelectDevice: (id: string) => void;
   weekOffset: number;
   onWeekChange: (offset: number) => void;
-  onEmptyCellClick: (cellDate: Date) => void;
+  onEmptyCellClick: (start: Date, end?: Date) => void;
   onCancel: (bookingId: string) => void;
   onConnect: (bookingId: string) => void;
 }) {
@@ -327,6 +335,7 @@ function WeekCalendar({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragSelection | null>(null);
 
   const weekStart = useMemo(() => {
     const w = startOfWeek(new Date());
@@ -377,6 +386,64 @@ function WeekCalendar({
   const todayKey = new Date().toDateString();
 
   const selectedDevice = devices.find((d) => d.id === selectedDeviceId);
+
+  // Drag handlers
+  const handleCellMouseDown = (day: Date, hour: number) => {
+    setDrag({ dayKey: day.toDateString(), startHour: hour, currentHour: hour });
+  };
+  const handleCellMouseEnter = (day: Date, hour: number) => {
+    if (!drag) return;
+    if (day.toDateString() !== drag.dayKey) return; // ignore other-day cells
+    // Clamp range to MAX_DURATION_HOURS
+    const proposed = Math.min(
+      Math.max(hour, drag.startHour - (MAX_DURATION_HOURS - 1)),
+      drag.startHour + (MAX_DURATION_HOURS - 1),
+    );
+    setDrag({ ...drag, currentHour: proposed });
+  };
+  const finalizeDrag = useCallback(() => {
+    setDrag((current) => {
+      if (!current) return null;
+      const days7 = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(weekStart);
+        d.setDate(d.getDate() + i);
+        return d;
+      });
+      const dayDate = days7.find((d) => d.toDateString() === current.dayKey);
+      if (!dayDate) return null;
+      const minH = Math.min(current.startHour, current.currentHour);
+      const maxH = Math.max(current.startHour, current.currentHour);
+      const startDate = new Date(dayDate);
+      startDate.setHours(minH, 0, 0, 0);
+      const endDate = new Date(dayDate);
+      // +1 because cell at maxH represents [maxH, maxH+1)
+      endDate.setHours(maxH + 1, 0, 0, 0);
+      // Only treat as drag if range > 1 cell, else let onClick fire on its own
+      if (minH !== maxH) {
+        onEmptyCellClick(startDate, endDate);
+      }
+      return null;
+    });
+  }, [weekStart, onEmptyCellClick]);
+
+  useEffect(() => {
+    if (!drag) return;
+    const up = () => finalizeDrag();
+    window.addEventListener("mouseup", up);
+    window.addEventListener("touchend", up);
+    return () => {
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("touchend", up);
+    };
+  }, [drag, finalizeDrag]);
+
+  const isCellInDrag = (day: Date, hour: number): boolean => {
+    if (!drag) return false;
+    if (day.toDateString() !== drag.dayKey) return false;
+    const minH = Math.min(drag.startHour, drag.currentHour);
+    const maxH = Math.max(drag.startHour, drag.currentHour);
+    return hour >= minH && hour <= maxH;
+  };
 
   return (
     <div className="surface overflow-hidden">
@@ -457,7 +524,10 @@ function WeekCalendar({
                 busy={data?.busy ?? []}
                 expandedBookingId={expandedBookingId}
                 onExpand={setExpandedBookingId}
-                onEmptyCellClick={onEmptyCellClick}
+                onEmptyCellClick={(start) => onEmptyCellClick(start)}
+                onCellMouseDown={handleCellMouseDown}
+                onCellMouseEnter={handleCellMouseEnter}
+                isCellInDrag={isCellInDrag}
                 onCancel={onCancel}
                 onConnect={onConnect}
               />
@@ -465,7 +535,7 @@ function WeekCalendar({
           </div>
 
           <p className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500 dark:border-slate-800">
-            ⓘ Click ô trống = đặt slot · click block = xem chi tiết / Connect / Cancel · 07:00–23:00.
+            ⓘ <b>Click</b> ô trống = đặt slot 1h · <b>Kéo dọc</b> nhiều ô = đặt slot dài hơn (tối đa 8h, liên tục, cùng ngày) · click block xanh = Connect / Cancel · 07:00–23:00.
           </p>
         </div>
       )}
@@ -479,6 +549,9 @@ function DayColumn({
   expandedBookingId,
   onExpand,
   onEmptyCellClick,
+  onCellMouseDown,
+  onCellMouseEnter,
+  isCellInDrag,
   onCancel,
   onConnect,
 }: {
@@ -487,6 +560,9 @@ function DayColumn({
   expandedBookingId: string | null;
   onExpand: (id: string | null) => void;
   onEmptyCellClick: (cellDate: Date) => void;
+  onCellMouseDown: (day: Date, hour: number) => void;
+  onCellMouseEnter: (day: Date, hour: number) => void;
+  isCellInDrag: (day: Date, hour: number) => boolean;
   onCancel: (bookingId: string) => void;
   onConnect: (bookingId: string) => void;
 }) {
@@ -497,20 +573,33 @@ function DayColumn({
 
   return (
     <div
-      className="relative border-l border-slate-200 dark:border-slate-800"
+      className="relative border-l border-slate-200 dark:border-slate-800 select-none"
       style={{ height: HOUR_PX * TOTAL_ROWS }}
     >
       {Array.from({ length: TOTAL_ROWS }, (_, i) => {
+        const hour = START_HOUR + i;
         const cellDate = new Date(day);
-        cellDate.setHours(START_HOUR + i, 0, 0, 0);
+        cellDate.setHours(hour, 0, 0, 0);
+        const inDrag = isCellInDrag(day, hour);
         return (
-          <button
-            type="button"
+          <div
             key={i}
-            onClick={() => onEmptyCellClick(cellDate)}
-            className="block w-full border-b border-slate-100 transition hover:bg-vju-50/60 hover:ring-1 hover:ring-inset hover:ring-vju-400 dark:border-slate-800/60 dark:hover:bg-vju-900/30"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onCellMouseDown(day, hour);
+            }}
+            onMouseEnter={() => onCellMouseEnter(day, hour)}
+            onClick={() => {
+              // Only fires for true single-cell click (no drag → finalizeDrag bails)
+              onEmptyCellClick(cellDate);
+            }}
+            className={`block w-full cursor-pointer border-b transition ${
+              inDrag
+                ? "border-vju-300 bg-vju-200/70 dark:border-vju-700 dark:bg-vju-700/40"
+                : "border-slate-100 hover:bg-vju-50/60 hover:ring-1 hover:ring-inset hover:ring-vju-400 dark:border-slate-800/60 dark:hover:bg-vju-900/30"
+            }`}
             style={{ height: HOUR_PX }}
-            aria-label={`Đặt slot ${pad(START_HOUR + i)}:00`}
+            aria-label={`Đặt slot ${pad(hour)}:00`}
           />
         );
       })}

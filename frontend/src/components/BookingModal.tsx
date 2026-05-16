@@ -104,13 +104,23 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
         const err = await r.json().catch(() => ({}));
         const code = err?.detail?.code ?? "ERROR";
         const friendly: Record<string, string> = {
-          BOOKING_CONFLICT: "Slot này trùng với lịch khác — chọn slot trống dưới đây.",
-          ACCESS_DENIED:
-            "Bạn chưa được giảng viên cấp quyền cho kit này. Liên hệ giảng viên.",
+          BOOKING_CONFLICT: "Slot này trùng với lịch khác — chọn slot trống.",
+          ACCESS_DENIED: "Bạn chưa được giảng viên cấp quyền cho kit này. Liên hệ giảng viên.",
+          NO_CLASS_ASSIGNMENT: "Kit này chưa được gán vào lớp nào của bạn.",
+          NO_SPECIAL_ACCESS: "Bạn chưa có quyền cá nhân cho kit này.",
+          OUTSIDE_TIME_WINDOW: "Slot nằm ngoài khung giờ lớp được phép.",
           OUTSIDE_CLASS_WINDOW: "Slot nằm ngoài khung giờ lớp được phép.",
+          WEEKLY_QUOTA_EXCEEDED: "Hết quota tuần này cho lớp / kit này.",
+          GLOBAL_WEEKLY_HOURS_EXCEEDED: "Hết quota tuần (cộng dồn mọi kit).",
           QUOTA_EXCEEDED: "Hết quota tuần này.",
-          DURATION_EXCEEDED: "Slot dài quá giới hạn (8h).",
+          DURATION_EXCEEDED: "Slot dài quá giới hạn (tối đa 8h).",
+          CONCURRENT_LIMIT_EXCEEDED: "Đã chạm giới hạn booking đồng thời cho kit này.",
+          GLOBAL_CONCURRENT_LIMIT: "Đã chạm giới hạn booking đồng thời (mọi kit).",
+          TOO_FAR_IN_ADVANCE: "Slot quá xa — chỉ được đặt trước 7 ngày.",
+          PAST_TIME: "Slot ở quá khứ — chọn giờ tương lai.",
+          INVALID_TIME_RANGE: "Giờ kết thúc phải sau giờ bắt đầu.",
           DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
+          DEVICE_NOT_AVAILABLE: "Thiết bị đang bảo trì hoặc offline.",
         };
         setResult({ ok: false, msg: friendly[code] ?? `Lỗi: ${code}` });
       }
