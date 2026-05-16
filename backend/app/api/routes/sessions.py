@@ -66,18 +66,38 @@ async def provision(
             status.HTTP_410_GONE, detail={"code": "BOOKING_EXPIRED"}
         )
 
-    # If session already exists, refuse — caller should /connect to existing wetty.
-    existing = (
-        await db.execute(select(DBSession).where(DBSession.booking_id == booking_id))
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail={"code": "SESSION_EXISTS"})
-
     device = (
         await db.execute(select(Device).where(Device.id == booking.device_id))
     ).scalar_one_or_none()
     if device is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "DEVICE_NOT_FOUND"})
+
+    # If a session already exists for this booking, rotate it: strip the old
+    # ephemeral pubkey from the KIT, mark the old session COMPLETED, then
+    # generate a fresh one. The private key is only ever in transit once, so
+    # re-click Connect must mint a new key — we cannot replay the old one.
+    existing = (
+        await db.execute(select(DBSession).where(DBSession.booking_id == booking_id))
+    ).scalar_one_or_none()
+    if existing is not None:
+        old_tag = ""
+        if "session=" in (existing.ssh_pubkey or ""):
+            old_tag = existing.ssh_pubkey.split("session=")[-1].split(" ")[0]
+        if old_tag:
+            try:
+                await ssh_manager.revoke_session(
+                    device_internal_ip=str(device.internal_ip),
+                    device_ssh_port=device.ssh_port,
+                    device_ssh_user=device.ssh_user,
+                    backend_admin_key_path=get_settings().BACKEND_SSH_KEY_PATH,
+                    session_tag=old_tag,
+                )
+            except Exception:
+                # Don't block re-issue if revoke best-effort fails — sed/ssh might be flaky.
+                pass
+        existing.status = SessionStatus.COMPLETED
+        existing.ended_at = datetime.now(timezone.utc)
+        await db.flush()
 
     settings = get_settings()
     session_tag = f"sess-{uuid4().hex[:12]}"
@@ -123,7 +143,10 @@ async def provision(
         "ssh_port": device.ssh_port,
         "fingerprint": result.fingerprint,
         "private_key": result.private_key_pem,
-        "wetty_url": f"/term/?host={device.internal_ip}&port={device.ssh_port}&user={device.ssh_user}",
+        # Wetty 2.x path syntax: /term/ssh/<user>@<host>:<port>. The wetty
+        # container has portal_admin_ed25519 mounted at /keys/ and authenticates
+        # to every KIT with it (publickey only, --allow-remote-hosts).
+        "wetty_url": f"/term/ssh/{device.ssh_user}@{device.internal_ip}:{device.ssh_port}",
         "expires_at": booking.end_time.isoformat(),
         "mocked": result.mocked,
     }

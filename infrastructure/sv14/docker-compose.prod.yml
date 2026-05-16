@@ -136,7 +136,19 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     mem_swappiness: 10
-    command: --base /term/ --port 3000 --allow-iframe true
+    # SSH key + allow-remote-hosts so URL `/term/ssh/<user>@<host>[:port]`
+    # connects to any device on the lab LAN using portal_admin_ed25519 (which
+    # has been pre-installed in ~ubuntu/.ssh/authorized_keys of every KIT).
+    command: >
+      --base /term/
+      --port 3000
+      --allow-iframe true
+      --allow-remote-hosts true
+      --ssh-key /keys/portal_admin_ed25519
+      --ssh-auth publickey
+      --known-hosts /dev/null
+    volumes:
+      - backend_ssh_keys:/keys:ro
     networks:
       - internal
       - lan

@@ -15,7 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
-import { BookingModal } from "@/components/BookingModal";
+import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import type { Device } from "@/components/DeviceCard";
 import { Countdown } from "@/components/Countdown";
 import { L, useLocaleListener } from "@/components/LocaleText";
@@ -86,6 +86,7 @@ function BookingsInner() {
     start?: string;
     end?: string;
   } | null>(null);
+  const [sessionOpen, setSessionOpen] = useState<SessionResult | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -134,12 +135,23 @@ function BookingsInner() {
   const connect = async (id: string) => {
     const r = await fetch(`${API}/sessions/provision/${id}`, { method: "POST", credentials: "include" });
     if (r.ok) {
-      const data = await r.json();
-      try { await navigator.clipboard?.writeText(data.private_key); } catch { /* */ }
-      window.open(data.wetty_url, "_blank");
+      const data = (await r.json()) as SessionResult;
+      // Open the launch modal instead of auto-popping a new tab. The modal
+      // shows the ssh command, private key + copy button, and a wetty link
+      // as a secondary option. User decides which workflow they want.
+      setSessionOpen(data);
     } else {
       const e = await r.json().catch(() => ({}));
-      alert(`Không mở được session: ${JSON.stringify(e)}`);
+      const code = e?.detail?.code ?? "ERROR";
+      const friendly: Record<string, string> = {
+        SESSION_EXISTS: "Phiên SSH cũ chưa được dọn — em đang rotate key, thử lại sau 2 giây.",
+        BOOKING_NOT_ACTIVATABLE: "Booking không ở trạng thái có thể kết nối (đã huỷ / hoàn thành).",
+        BOOKING_NOT_STARTED_YET: "Chưa tới giờ slot. Vào /bookings đợi countdown.",
+        BOOKING_EXPIRED: "Slot này đã hết giờ.",
+        BOOKING_NOT_FOUND: "Không tìm thấy booking.",
+        DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
+      };
+      alert(friendly[code] ?? `Không mở được session: ${code}`);
     }
   };
 
@@ -300,6 +312,13 @@ function BookingsInner() {
             setBookingOpen(null);
             refresh();
           }}
+        />
+      )}
+
+      {sessionOpen && (
+        <SessionLaunchModal
+          session={sessionOpen}
+          onClose={() => setSessionOpen(null)}
         />
       )}
     </div>
