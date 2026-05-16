@@ -17,6 +17,8 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 export type DeviceFamily = "fpga" | "jetson" | "rpi";
 
+export type PowerState = "on" | "off" | "resetting";
+
 export type Device = {
   id: string;
   name: string;
@@ -28,8 +30,49 @@ export type Device = {
     | "rpi5";
   model: string;
   status: "available" | "in_use" | "maintenance" | "offline";
+  power_state: PowerState;
   capabilities: Record<string, unknown>;
 };
+
+/**
+ * Highlight the trailing number group of a device slug, e.g. "fpga-kv260-001"
+ * → ("fpga-kv260-", "001"). Used by the card header to make "kit số mấy"
+ * instantly readable across the 3×3 grid.
+ */
+function splitDeviceNumber(name: string): { prefix: string; number: string | null } {
+  const m = name.match(/^(.*?[-_])(\d{1,4})$/);
+  if (m) return { prefix: m[1], number: m[2] };
+  return { prefix: name, number: null };
+}
+
+const POWER_BADGE: Record<PowerState, { label: string; dot: string; text: string }> = {
+  on: {
+    label: "Nguồn bật",
+    dot: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.85)]",
+    text: "text-emerald-100",
+  },
+  off: {
+    label: "Đã tắt",
+    dot: "bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.75)]",
+    text: "text-rose-100",
+  },
+  resetting: {
+    label: "Đang reset",
+    dot: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.85)] animate-pulse",
+    text: "text-amber-100",
+  },
+};
+
+/** Pretty-print a capability value (boolean / number / string / object / array). */
+function formatCapValue(v: unknown): string {
+  if (v === true) return "✓";
+  if (v === false) return "✗";
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "number") return String(v);
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(String).join(", ");
+  return JSON.stringify(v);
+}
 
 export type LiveStatus = {
   device_id: string;
@@ -249,6 +292,9 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
     isOwner && current ? fmtRemaining(remainingMs(current.end_time)) : null;
   void tick;
 
+  const { prefix, number } = splitDeviceNumber(device.name);
+  const power = POWER_BADGE[device.power_state];
+
   return (
     <div className="surface relative flex flex-col overflow-hidden p-0">
       {/* Big gradient banner shows state at a glance */}
@@ -258,10 +304,32 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-              {theme.badge} · {device.name}
+              {theme.badge}
             </p>
-            <p className="mt-1 text-base font-bold leading-tight">
+            <p className="mt-1 leading-none">
+              <span className="font-mono text-sm font-semibold opacity-75">
+                {prefix.toUpperCase()}
+              </span>
+              {number && (
+                <span className="ml-0.5 font-mono text-3xl font-extrabold tracking-tight drop-shadow">
+                  {number}
+                </span>
+              )}
+              {!number && (
+                <span className="font-mono text-base font-bold">
+                  {device.name.toUpperCase()}
+                </span>
+              )}
+            </p>
+            <p className="mt-1.5 text-sm font-semibold leading-tight">
               {device.model}
+            </p>
+            {/* Power LED indicator — admin manually toggles in /admin/devices */}
+            <p
+              className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold ${power.text}`}
+            >
+              <span className={`h-2 w-2 rounded-full ${power.dot}`} />
+              {power.label}
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -363,20 +431,27 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
           </div>
         )}
 
-        {/* Capabilities chips */}
-        {Object.keys(device.capabilities).length > 0 && (
+        {/* Capability key:value chips — show actual specs, not just keys */}
+        {Object.keys(device.capabilities).length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
-            {Object.keys(device.capabilities)
-              .slice(0, 5)
-              .map((c) => (
+            {Object.entries(device.capabilities)
+              .slice(0, 6)
+              .map(([k, v]) => (
                 <span
-                  key={c}
-                  className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  key={k}
+                  className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-400"
                 >
-                  {c}
+                  <span className="text-slate-400">{k}</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-200">
+                    {formatCapValue(v)}
+                  </span>
                 </span>
               ))}
           </div>
+        ) : (
+          <p className="text-[10px] italic text-slate-400 dark:text-slate-500">
+            Chưa khai báo thông số. Admin có thể bổ sung trong /admin/devices.
+          </p>
         )}
 
         {/* Actions */}

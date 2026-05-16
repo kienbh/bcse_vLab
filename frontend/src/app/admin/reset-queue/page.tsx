@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, Cpu, Inbox, Loader2, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Check, Cpu, Inbox, Loader2, Power, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { AdminPageHeader } from "@/components/AdminPageHeader";
@@ -145,6 +145,40 @@ function ResetQueueInner() {
   };
 
   const approve = (id: string) => decide(id, "approve");
+
+  /**
+   * Pilot reality: the plug API isn't online in Hoà Lạc, so "Duyệt + Reset"
+   * just marks the request approved without actually cycling power. After
+   * the admin physically flips the rocker, they click "Đã reset xong (tay)"
+   * → flips device.power_state to ON + closes any pending+approved requests
+   * for that device. All bundled in one POST /api/admin/devices/{id}/mark-reset-done.
+   */
+  const markDone = async (deviceId: string, deviceName: string) => {
+    if (
+      !confirm(
+        `Xác nhận đã cắm điện lại cho ${deviceName}? Việc này sẽ:\n` +
+          "  • Đặt nguồn điện = ON\n" +
+          "  • Đóng mọi yêu cầu reset đang chờ cho thiết bị này",
+      )
+    )
+      return;
+    setDecidingId(deviceId);
+    try {
+      const r = await fetch(`${API}/admin/devices/${deviceId}/mark-reset-done`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        alert(`Không xử lý được: ${data?.detail?.code ?? r.status}`);
+        return;
+      }
+      refresh();
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
   const reject = async (id: string) => {
     const note = window.prompt("Lý do từ chối (sẽ gửi cho người yêu cầu):", "");
     if (note === null) return;
@@ -237,6 +271,16 @@ function ResetQueueInner() {
                   >
                     {decidingId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                     Duyệt + Reset
+                  </button>
+                  <button
+                    type="button"
+                    disabled={decidingId === r.id}
+                    onClick={() => markDone(r.device_id, r.device_name)}
+                    title="Mình đã ra Hoà Lạc rút/cắm điện xong → đóng request + set nguồn = ON"
+                    className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-3 py-2 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+                  >
+                    <Power className="h-4 w-4" />
+                    Đã reset xong (tay)
                   </button>
                   <button
                     type="button"

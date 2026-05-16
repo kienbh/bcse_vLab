@@ -55,3 +55,17 @@ class ResetRequestStatus(StrEnum):
     REJECTED = "rejected"      # decided NO — no plug action
     COMPLETED = "completed"    # approved + plug power-cycled OK
     FAILED = "failed"          # approved + plug error
+
+
+class DevicePowerState(StrEnum):
+    """ADR-0013 / M5.9: orthogonal to DeviceStatus. Reflects the smart plug
+    state when the API works, or the admin's manual toggle when it doesn't
+    (pilot — plugs in Hoà Lạc still need someone to flip them by hand).
+
+    Difference from DeviceStatus:
+      - status: is this kit usable? (available / in_use / maintenance / offline)
+      - power_state: is electricity actually flowing? (on / off / resetting)
+    """
+    ON = "on"
+    OFF = "off"
+    RESETTING = "resetting"

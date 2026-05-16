@@ -4,12 +4,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, Index, Integer, String, LargeBinary, text
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, LargeBinary, text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, pg_enum
-from app.models.enums import DeviceStatus, DeviceType, PlugType
+from app.models.enums import DevicePowerState, DeviceStatus, DeviceType, PlugType
 
 if TYPE_CHECKING:
     from app.models.booking import Booking
@@ -36,6 +38,21 @@ class Device(Base, TimestampMixin):
         nullable=False,
         default=DeviceStatus.AVAILABLE,
         index=True,
+    )
+    # M5.9 — admin-toggled power state. Orthogonal to `status` (which is the
+    # operational state for booking eligibility). See migration 0007.
+    power_state: Mapped[DevicePowerState] = mapped_column(
+        pg_enum(DevicePowerState, name="device_power_state"),
+        nullable=False,
+        default=DevicePowerState.ON,
+    )
+    power_state_changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    power_state_changed_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     capabilities: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)

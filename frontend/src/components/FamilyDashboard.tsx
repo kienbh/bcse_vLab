@@ -161,7 +161,15 @@ function FamilyInner({
       }
       const all: Device[] = await r.json();
       const allowed = new Set(FAMILY_TO_TYPES[family]);
-      setDevices(all.filter((d) => allowed.has(d.device_type)));
+      // Sort ascending by name so the "001/002/003 lên đầu" priority that
+      // operators expect happens for free — the slug suffix is the kit
+      // index, and localeCompare with numeric:true keeps 002 < 010.
+      const filtered = all
+        .filter((d) => allowed.has(d.device_type))
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }),
+        );
+      setDevices(filtered);
       setError(null);
     } catch (e) {
       setError(String(e));

@@ -9,6 +9,7 @@ from app.models.gateway import GatewayAuthLog, GatewaySession
 from app.models.enums import (
     BookingGrantedVia,
     BookingStatus,
+    DevicePowerState,
     DeviceStatus,
     DeviceType,
     PlugType,
@@ -43,6 +44,7 @@ __all__ = [
     "UserRole",
     "DeviceType",
     "DeviceStatus",
+    "DevicePowerState",
     "PlugType",
     "BookingGrantedVia",
     "BookingStatus",

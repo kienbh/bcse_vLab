@@ -1,8 +1,9 @@
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
 
-from app.models import DeviceStatus, DeviceType, PlugType
+from app.models import DevicePowerState, DeviceStatus, DeviceType, PlugType
 
 
 class PlugMappingIn(BaseModel):
@@ -42,6 +43,8 @@ class DeviceOut(BaseModel):
     ssh_port: int
     ssh_user: str
     status: DeviceStatus
+    power_state: DevicePowerState
+    power_state_changed_at: datetime
     capabilities: dict
     notes: str | None
 
