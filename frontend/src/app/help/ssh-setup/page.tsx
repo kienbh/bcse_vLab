@@ -37,25 +37,15 @@ export default function SshSetupHelpPage() {
           <li>
             Copy lệnh từ modal:{" "}
             <code className="block rounded bg-slate-900 px-3 py-2 font-mono text-xs text-emerald-300">
-              ssh -J vlab@ssh.bcse-vju.com:2222 pi@192.168.2.93
+              ssh -p 2223 vlab@ssh.bcse-vju.com
             </code>
           </li>
           <li>Dán vào terminal, Enter.</li>
           <li>
-            Hỏi password 2 lần:
-            <ul className="ml-4 mt-1 list-disc text-xs text-slate-600 dark:text-slate-400">
-              <li>
-                <strong>Lần 1</strong> (cho{" "}
-                <code className="font-mono">vlab@ssh.bcse-vju.com</code>):
-                paste password từ modal.
-              </li>
-              <li>
-                <strong>Lần 2</strong> (cho{" "}
-                <code className="font-mono">pi@192.168.2.93</code>): password
-                kit pi/student do giảng viên cấp. Pilot: hỏi giảng viên hoặc
-                để trống nếu kit đã setup pubkey.
-              </li>
-            </ul>
+            Hỏi password <strong>1 lần</strong> (cho{" "}
+            <code className="font-mono">vlab@ssh.bcse-vju.com</code>): paste
+            password 12 ký tự từ modal → vào thẳng shell kit. Không cần biết
+            mật khẩu kit, cổng giải quyết route giúp.
           </li>
         </ol>
         <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
@@ -84,21 +74,21 @@ export default function SshSetupHelpPage() {
             <strong>Session → SSH</strong>
           </li>
           <li>
-            <strong>Remote host</strong>: <code className="font-mono">{`<target_host>`}</code>{" "}
-            (modal hiện) ·{" "}
-            <strong>Username</strong>:{" "}
-            <code className="font-mono">{`<target_user>`}</code>
+            <strong>Remote host</strong>:{" "}
+            <code className="font-mono">ssh.bcse-vju.com</code> ·{" "}
+            <strong>Port</strong>: <code className="font-mono">2223</code> ·{" "}
+            <strong>Username</strong>: <code className="font-mono">vlab</code>
           </li>
           <li>
-            <strong>Advanced SSH settings → Network settings</strong> →
-            tick <em>Connect through SSH gateway (jump host)</em>
+            <em>
+              KHÔNG cần tick &quot;SSH gateway / jump host&quot; — bỏ qua phần
+              đó.
+            </em>
           </li>
           <li>
-            Gateway host: <code className="font-mono">ssh.bcse-vju.com</code>{" "}
-            · Port: <code className="font-mono">2222</code> · User:{" "}
-            <code className="font-mono">vlab</code>
+            OK → Connect → nhập password 12 ký tự từ modal → vào thẳng shell
+            kit.
           </li>
-          <li>OK → Connect → nhập password modal vào prompt cho vlab.</li>
         </ol>
       </section>
 

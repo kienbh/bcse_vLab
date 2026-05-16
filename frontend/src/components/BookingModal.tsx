@@ -485,14 +485,11 @@ export function SessionLaunchModal({
               </button>
             </div>
             <p className="mt-1.5 text-[11px] text-slate-500">
-              Gateway:{" "}
-              <code className="font-mono">
-                {current.ssh_username}@{current.jump_host}:{current.jump_port}
-              </code>{" "}
-              → KIT{" "}
+              Nhập password phía trên khi được hỏi → vào thẳng kit{" "}
               <code className="font-mono">
                 {current.target_user}@{current.target_host}
               </code>
+              . Không cần nhập password lần hai.
             </p>
           </div>
 
@@ -502,26 +499,18 @@ export function SessionLaunchModal({
               Dùng MobaXterm thay vì terminal?
             </summary>
             <div className="space-y-1 px-3 pb-2 text-[11px] text-slate-600 dark:text-slate-300">
-              <p>
-                Session → SSH → <strong>Remote host</strong>:{" "}
-                <code className="font-mono">{current.target_host}</code>{" "}
-                · <strong>Username</strong>:{" "}
-                <code className="font-mono">{current.target_user}</code>
-              </p>
-              <p>
-                Advanced SSH → Network settings → tick{" "}
-                <strong>Connect through SSH gateway (jump host)</strong>:
-              </p>
+              <p>Session → SSH:</p>
               <p className="pl-4">
-                Gateway host:{" "}
-                <code className="font-mono">{current.jump_host}</code> · Port:{" "}
-                <code className="font-mono">{current.jump_port}</code> · User:{" "}
+                <strong>Remote host</strong>:{" "}
+                <code className="font-mono">{current.jump_host}</code> ·{" "}
+                <strong>Port</strong>:{" "}
+                <code className="font-mono">{current.jump_port}</code> ·{" "}
+                <strong>Username</strong>:{" "}
                 <code className="font-mono">{current.ssh_username}</code>
               </p>
               <p>
-                Khi connect: nhập password ở trên cho{" "}
-                <code className="font-mono">{current.ssh_username}</code>
-                @gateway.
+                Connect → nhập password ở trên → vào thẳng shell kit. Không
+                cần tick &quot;SSH gateway / jump host&quot;.
               </p>
             </div>
           </details>

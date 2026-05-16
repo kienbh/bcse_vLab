@@ -81,10 +81,12 @@ class AccessInfoResponse(BaseModel):
     regenerate_count: int
 
 
-def _build_ssh_command(*, jump_user: str, jump_host: str, jump_port: int, target_user: str, target_host: str) -> str:
-    # MobaXterm / OpenSSH both understand `ssh -J user@host:port user@host`.
-    # Keep the form one-liner so users can paste it verbatim.
-    return f"ssh -J {jump_user}@{jump_host}:{jump_port} {target_user}@{target_host}"
+def _build_ssh_command(*, jump_user: str, jump_host: str, jump_port: int) -> str:
+    # Pattern B: user SSHes only to the gateway. The vlab-jump.sh ForceCommand
+    # wrapper authenticates to the assigned kit using the backend admin key,
+    # so the user never sees / needs the kit password. One password = full
+    # journey from Internet → kit shell.
+    return f"ssh -p {jump_port} {jump_user}@{jump_host}"
 
 
 async def _load_booking_for_owner(
@@ -169,8 +171,6 @@ async def _issue_or_rotate(
         jump_user=settings.GATEWAY_SSH_USERNAME,
         jump_host=settings.JUMP_HOST_PUBLIC,
         jump_port=settings.JUMP_HOST_PUBLIC_PORT,
-        target_user=device.ssh_user,
-        target_host=str(device.internal_ip),
     )
     return AccessIssueResponse(
         session_id=str(result.session.id),
@@ -239,8 +239,6 @@ async def get_access_info(
         jump_user=sess.ssh_username,
         jump_host=settings.JUMP_HOST_PUBLIC,
         jump_port=settings.JUMP_HOST_PUBLIC_PORT,
-        target_user=sess.target_user,
-        target_host=str(sess.target_host),
     )
     return AccessInfoResponse(
         session_id=str(sess.id),
