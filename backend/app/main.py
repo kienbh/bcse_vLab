@@ -22,6 +22,7 @@ from app.api.routes import (
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.services.device_prober import periodic_probe
 from app.services.gateway_janitor import periodic_sweep
 
 
@@ -36,14 +37,16 @@ async def lifespan(app: FastAPI):
         debug=settings.DEBUG,
     )
     sweeper_task = asyncio.create_task(periodic_sweep())
+    prober_task = asyncio.create_task(periodic_probe())
     try:
         yield
     finally:
-        sweeper_task.cancel()
-        try:
-            await sweeper_task
-        except (asyncio.CancelledError, Exception):
-            pass
+        for task in (sweeper_task, prober_task):
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         logger.info("shutting down vju-lab-portal-api")
 
 
