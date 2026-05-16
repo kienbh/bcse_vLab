@@ -144,26 +144,59 @@ function BookingsInner() {
 
   const connect = async (id: string) => {
     // ADR-0013: ask backend for the gateway session (password + ssh command).
-    // The password is in the response body once — modal must show it before close.
-    const r = await fetch(`${API}/bookings/${id}/access`, {
-      method: "POST",
-      credentials: "include",
-    });
-    if (r.ok) {
-      const data = (await r.json()) as SessionResult;
-      setSessionOpen({ data, bookingId: id });
-    } else {
-      const e = await r.json().catch(() => ({}));
-      const code = e?.detail?.code ?? "ERROR";
-      const friendly: Record<string, string> = {
-        BOOKING_NOT_ACTIVATABLE: "Booking không ở trạng thái có thể kết nối (đã huỷ / hoàn thành).",
-        BOOKING_NOT_STARTED_YET: "Chưa tới giờ slot. Vào /bookings đợi countdown.",
-        BOOKING_EXPIRED: "Slot này đã hết giờ.",
-        BOOKING_NOT_FOUND: "Không tìm thấy booking.",
-        DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
-      };
-      alert(friendly[code] ?? `Không lấy được password: ${code}`);
+    // Password is in the response body once — modal must show it before close.
+    // We retry once on network glitches / 5xx because the symptom users saw
+    // was "click Connect → 'không lấy được pass' → F5 → it works."
+    const friendly: Record<string, string> = {
+      BOOKING_NOT_ACTIVATABLE: "Booking không ở trạng thái có thể kết nối (đã huỷ / hoàn thành).",
+      BOOKING_NOT_STARTED_YET: "Chưa tới giờ slot. Vào /bookings đợi countdown.",
+      BOOKING_EXPIRED: "Slot này đã hết giờ.",
+      BOOKING_NOT_FOUND: "Không tìm thấy booking.",
+      DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
+    };
+
+    const tryOnce = async (): Promise<
+      | { ok: true; data: SessionResult }
+      | { ok: false; code: string; status: number }
+      | { ok: false; code: "NETWORK"; status: 0 }
+    > => {
+      try {
+        const r = await fetch(`${API}/bookings/${id}/access`, {
+          method: "POST",
+          credentials: "include",
+          headers: { Accept: "application/json" },
+        });
+        if (r.ok) return { ok: true, data: (await r.json()) as SessionResult };
+        const body = await r.json().catch(() => ({}));
+        return {
+          ok: false,
+          code: (body as { detail?: { code?: string } })?.detail?.code ?? `HTTP_${r.status}`,
+          status: r.status,
+        };
+      } catch (e) {
+        console.error("[connect] network error", e);
+        return { ok: false, code: "NETWORK", status: 0 };
+      }
+    };
+
+    let res = await tryOnce();
+    // One silent retry for transient network errors or 5xx — covers the
+    // brief window during janitor sweeps when bcrypt verify queues up.
+    if (!res.ok && (res.code === "NETWORK" || res.status >= 500)) {
+      await new Promise((r) => setTimeout(r, 600));
+      res = await tryOnce();
     }
+
+    if (res.ok) {
+      setSessionOpen({ data: res.data, bookingId: id });
+      return;
+    }
+    const msg =
+      friendly[res.code] ??
+      (res.code === "NETWORK"
+        ? "Mạng tạm thời trục trặc — em đã retry 1 lần. Nếu lặp lại, F5 trang."
+        : `Không lấy được password: ${res.code}`);
+    alert(msg);
   };
 
   const fmt = (iso: string) =>
