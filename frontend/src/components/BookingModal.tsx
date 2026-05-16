@@ -440,7 +440,7 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
                   </div>
                   <p className="text-[10px] text-slate-500">
                     ⚠ Lệnh này chỉ work khi máy bạn có route tới {session.ssh_host}.
-                    User remote dùng "Mở terminal" ở trên.
+                    User remote dùng &ldquo;Mở terminal&rdquo; ở trên.
                   </p>
                 </div>
               </details>
