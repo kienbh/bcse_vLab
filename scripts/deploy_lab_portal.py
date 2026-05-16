@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 import tarfile
 import time
@@ -482,7 +483,7 @@ def sub(key, val):
 for k in ['POSTGRES_PASSWORD','REDIS_PASSWORD','AUTHENTIK_DB_PASSWORD','AUTHENTIK_BOOTSTRAP_PASSWORD']:
     if f'{{k}}=__GENERATE' in s:
         sub(k, gen(24))
-for k in ['JWT_SECRET_KEY','AUTHENTIK_SECRET_KEY']:
+for k in ['JWT_SECRET_KEY','AUTHENTIK_SECRET_KEY','GATEWAY_SHARED_SECRET']:
     if f'{{k}}=__GENERATE' in s:
         sub(k, gen(64))
 if 'DEVICE_KEY_ENCRYPTION_KEY=__GENERATE' in s:
@@ -516,10 +517,75 @@ PY
                  SV14_PASS, timeout=600)
         time.sleep(15)
         sudo_run(c, "docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'", SV14_PASS, check=False)
+
+        # M5.8 / ADR-0013 — bring schema to head (gateway_sessions + gateway_auth_log).
+        # Alembic is idempotent: no-op if already at head.
+        log("  alembic upgrade head (gateway_sessions migration if not applied)")
+        sudo_run(
+            c,
+            f"cd {compose_dir} && docker compose -f docker-compose.prod.yml --env-file .env.prod "
+            f"exec -T backend alembic upgrade head",
+            SV14_PASS,
+            check=False,
+            timeout=180,
+        )
+
         sudo_run(c, "curl -fsS http://localhost:8000/api/health || echo BACKEND_NOT_READY", SV14_PASS, check=False)
         sudo_run(c, "curl -fsS http://localhost:3000/api/health || echo FRONTEND_NOT_READY", SV14_PASS, check=False)
     finally:
         c.close()
+
+
+def read_sv14_secret(jump: paramiko.SSHClient, key: str) -> str:
+    """Grep a single KEY=VALUE pair out of SV14's .env.prod."""
+    c = vps_client(jump, SV14_IP, SV14_USER, SV14_PASS)
+    try:
+        # sudo because .env.prod is chmod 600 root-owned
+        _, out, _ = sudo_run(
+            c,
+            f"grep '^{key}=' {SV14_REMOTE}/infrastructure/sv14/.env.prod",
+            SV14_PASS,
+            check=True,
+        )
+        line = out.strip().splitlines()[-1]
+        return line.split("=", 1)[1].strip()
+    finally:
+        c.close()
+
+
+def deploy_pve_jump_host(jump: paramiko.SSHClient, *, gateway_secret: str) -> None:
+    """ADR-0013 / M5.8 — install the static-vlab + PAM-exec gateway on the
+    PVE host. Idempotent: re-runs replace scripts + restore PAM block, but
+    the original /etc/pam.d/sshd is backed up only on first run."""
+    log("=" * 60)
+    log("PVE jump host — install vlab user + PAM gateway (ADR-0013)")
+    log("=" * 60)
+
+    # Backend URL the PAM script will POST to. Cloudflare Tunnel takes
+    # backend.bcse-vju.com → SV14 backend; PVE host reaches SV14 over
+    # the LAN, so we use the LAN URL to skip TLS hop.
+    backend_url = f"http://{SV14_IP}:8000"
+
+    script_local = PROJECT_ROOT / "infrastructure" / "pve" / "setup-jump-host-pve.sh"
+    if not script_local.exists():
+        raise FileNotFoundError(script_local)
+
+    remote_path = "/root/setup-jump-host-pve.sh"
+    upload(jump, script_local, remote_path)
+    run(jump, f"chmod 755 {remote_path}", check=True)
+    # Run with the secret + backend URL in env.
+    cmd = (
+        f"BACKEND_URL={backend_url} "
+        f"GATEWAY_SHARED_SECRET={shlex.quote(gateway_secret)} "
+        f"bash {remote_path}"
+    )
+    rc, out, err = run(jump, cmd, check=False, timeout=180)
+    log(out.strip() or "(no stdout)")
+    if err.strip():
+        log("  stderr: " + err.strip())
+    if rc != 0:
+        raise RuntimeError(f"PVE jump host setup exited {rc}")
+    log("  PVE jump host ready.")
 
 
 # --------------------------------------------------------------------- main
@@ -555,6 +621,10 @@ def main() -> int:
                     help="Skip nginx vhost on SV08")
     ap.add_argument("--skip-sv14", action="store_true",
                     help="Skip SV14 deploy")
+    ap.add_argument("--skip-pve", action="store_true",
+                    help="Skip PVE jump host setup (ADR-0013 / M5.8)")
+    ap.add_argument("--pve-only", action="store_true",
+                    help="Only (re)install the PVE jump host gateway script")
     ap.add_argument("--setup-ssh-tunnel", action="store_true",
                     help="Only set up CF DNS + tunnel ingress for ssh.bcse-vju.com (M5.7).")
     ap.add_argument("--smoke-only", action="store_true",
@@ -569,7 +639,16 @@ def main() -> int:
         cf_ensure_ssh_dns()
         cf_remove_ssh_tunnel_rule()
         log("SSH gateway done. Test from your machine:")
-        log("  ssh -i vju-session.key -J sess-xxx@ssh.bcse-vju.com:2223 ubuntu@192.168.2.93")
+        log("  ssh -p 2222 vlab@ssh.bcse-vju.com   # password from /bookings → Get SSH access")
+        return 0
+
+    if args.pve_only:
+        j = jump_client()
+        try:
+            secret = read_sv14_secret(j, "GATEWAY_SHARED_SECRET")
+            deploy_pve_jump_host(j, gateway_secret=secret)
+        finally:
+            j.close()
         return 0
 
     if not args.skip_cf:
@@ -584,6 +663,9 @@ def main() -> int:
             deploy_sv14(j, skip_build=args.skip_build)
         if not args.skip_sv08:
             install_nginx_vhost_sv08(j)
+        if not args.skip_pve:
+            secret = read_sv14_secret(j, "GATEWAY_SHARED_SECRET")
+            deploy_pve_jump_host(j, gateway_secret=secret)
     finally:
         j.close()
 
