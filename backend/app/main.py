@@ -13,6 +13,7 @@ from app.api.routes import (
     classes,
     devices,
     events,
+    gateway,
     health,
     reset,
     reset_requests,
@@ -20,7 +21,7 @@ from app.api.routes import (
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.services.session_lifecycle import periodic_sweep
+from app.services.gateway_janitor import periodic_sweep
 
 
 @asynccontextmanager
@@ -70,6 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(classes.router, prefix="/api")
     app.include_router(classes.teacher_router, prefix="/api")
     app.include_router(bookings.router, prefix="/api")
+    app.include_router(gateway.bookings_router, prefix="/api")
+    app.include_router(gateway.gateway_router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")
     app.include_router(reset.router, prefix="/api")
     app.include_router(reset_requests.router, prefix="/api")

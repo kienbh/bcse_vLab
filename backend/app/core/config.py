@@ -67,12 +67,16 @@ class Settings(BaseSettings):
     # Public-facing endpoint shown to users in the SSH command
     JUMP_HOST_PUBLIC: str = "ssh.bcse-vju.com"
     JUMP_HOST_PUBLIC_PORT: int = 2222
+    # ADR-0013 (M5.8): jump host PAM hits /api/gateway/auth with this header.
+    # Must match the value baked into /etc/vlab/gateway.env on the jump host.
+    # Generate once with `openssl rand -hex 32` and pin in .env.prod.
+    GATEWAY_SHARED_SECRET: SecretStr = SecretStr("dev_only_gateway_secret_change_me_32_hex_chars_xxxxxxxxxxxxxxxxxx")
+    # Static SSH username users type at `ssh -J <user>@host`. Single account
+    # on the jump host, no-shell, password-auth via PAM → backend.
+    GATEWAY_SSH_USERNAME: str = "vlab"
 
     PLUG_API_TIMEOUT_SECONDS: int = 10
     PLUG_API_RETRY_COUNT: int = 3
-
-    WETTY_HOST: str = "localhost"
-    WETTY_PORT: int = 3001
 
     LOG_LEVEL: str = "INFO"
     LOG_FORMAT: Literal["text", "json"] = "json"
