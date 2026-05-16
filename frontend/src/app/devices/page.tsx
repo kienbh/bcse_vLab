@@ -72,21 +72,21 @@ function DevicesInner() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
       {/* Top-down photo of the 9-Kria pool — flat-lay aesthetic */}
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-md dark:border-slate-700">
         <img
           src="/images/lab-grid-isometric.png"
           alt="Pool 9 Xilinx Kria + dây mạng tại lab Hoà Lạc"
-          className="h-44 w-full object-cover md:h-56"
+          className="h-56 w-full object-cover md:h-80 lg:h-96"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/80 via-slate-950/30 to-transparent" />
-        <div className="absolute inset-0 flex flex-col justify-center px-5 md:px-8">
-          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90">
+        <div className="absolute inset-0 flex flex-col justify-center px-6 md:px-10">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90 md:text-xs">
             Hoà Lạc · Hardware Lab
           </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-white drop-shadow md:text-3xl">
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white drop-shadow md:text-4xl lg:text-5xl">
             Thiết bị có thể đặt
           </h1>
-          <p className="mt-1 max-w-md text-xs text-slate-200/90 md:text-sm">
+          <p className="mt-2 max-w-md text-sm text-slate-200/90 md:text-base">
             FPGA Kria · Jetson · Raspberry Pi — chọn kit + đặt slot + SSH
             qua gateway, không cần VPN.
           </p>

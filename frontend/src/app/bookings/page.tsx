@@ -187,19 +187,22 @@ function BookingsInner() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
       {/* Decorative circuit-art banner — Xilinx Kria pool aesthetic */}
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-md dark:border-slate-700">
         <img
           src="/images/lab-circuit-art.png"
           alt=""
           aria-hidden="true"
-          className="h-32 w-full object-cover md:h-40"
+          className="h-48 w-full object-cover md:h-72 lg:h-80"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/40 to-transparent" />
-        <div className="absolute inset-0 flex flex-col justify-center px-5 md:px-8">
-          <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow md:text-3xl">
+        <div className="absolute inset-0 flex flex-col justify-center px-6 md:px-10">
+          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-vju-200/90 md:text-xs">
+            Bookings
+          </p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white drop-shadow md:text-4xl lg:text-5xl">
             <L k="page.bookings.title" />
           </h1>
-          <p className="mt-1 text-xs text-vju-100/90 md:text-sm">
+          <p className="mt-2 text-sm text-vju-100/90 md:text-base">
             {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
           </p>
         </div>
