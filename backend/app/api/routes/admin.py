@@ -216,12 +216,20 @@ async def mark_reset_done(
     d.power_state_changed_at = now
     d.power_state_changed_by = user.id
 
+    # PENDING + APPROVED = normal "still open" states.
+    # FAILED = plug API call errored (mock mode never succeeds against the
+    # offline Hoà Lạc plugs), but the admin's manual reset still closes the
+    # business case so we treat it as the same bucket.
     rows = (
         await db.execute(
             select(ResetRequest).where(
                 ResetRequest.device_id == device_id,
                 ResetRequest.status.in_(
-                    [ResetRequestStatus.PENDING, ResetRequestStatus.APPROVED]
+                    [
+                        ResetRequestStatus.PENDING,
+                        ResetRequestStatus.APPROVED,
+                        ResetRequestStatus.FAILED,
+                    ]
                 ),
             )
         )

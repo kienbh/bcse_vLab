@@ -306,27 +306,47 @@ function ResetQueueInner() {
           <p className="text-sm text-slate-500">Chưa có yêu cầu nào.</p>
         ) : (
           <ul className="space-y-2">
-            {history.map((r) => (
-              <li key={r.id} className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-xs">{r.requester_display}</span>
-                  <span className="text-slate-400">→</span>
-                  <span className="font-mono text-xs text-vju-700 dark:text-vju-300">{r.device_name}</span>
-                  <span className="text-xs italic text-slate-500 max-w-xs truncate">{r.reason}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
-                  {r.auto_approved && (
-                    <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                      AUTO
+            {history.map((r) => {
+              // Plug API in Hoà Lạc is offline → auto-approved reset_requests
+              // come back FAILED (or stay APPROVED). Both states mean "admin
+              // needs to walk over and flip the rocker" — surface a
+              // "Đã reset xong" button so they can close the loop without
+              // hopping to /admin/devices.
+              const needsManualClose = r.status === "approved" || r.status === "failed";
+              return (
+                <li key={r.id} className="surface flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-xs">{r.requester_display}</span>
+                    <span className="text-slate-400">→</span>
+                    <span className="font-mono text-xs text-vju-700 dark:text-vju-300">{r.device_name}</span>
+                    <span className="text-xs italic text-slate-500 max-w-xs truncate">{r.reason}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    {r.auto_approved && (
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                        AUTO
+                      </span>
+                    )}
+                    <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_BADGE[r.status]}`}>
+                      {STATUS_LABEL[r.status]}
                     </span>
-                  )}
-                  <span className={`rounded px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_BADGE[r.status]}`}>
-                    {STATUS_LABEL[r.status]}
-                  </span>
-                  <span className="text-slate-400">{fmt(r.decided_at ?? r.requested_at)}</span>
-                </div>
-              </li>
-            ))}
+                    {needsManualClose && (
+                      <button
+                        type="button"
+                        disabled={decidingId === r.device_id}
+                        onClick={() => markDone(r.device_id, r.device_name)}
+                        title="Mình đã ra Hoà Lạc cắm điện lại → đóng request + set nguồn = ON"
+                        className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2 py-1 text-[11px] font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+                      >
+                        <Power className="h-3 w-3" />
+                        Đã reset xong (tay)
+                      </button>
+                    )}
+                    <span className="text-slate-400">{fmt(r.decided_at ?? r.requested_at)}</span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

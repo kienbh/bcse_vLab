@@ -27,6 +27,7 @@ from app.models import (
     Class,
     ClassDeviceAssignment,
     Device,
+    DevicePowerState,
     Enrollment,
     PlugMapping,
     ResetRequest,
@@ -160,14 +161,34 @@ async def _can_decide(
 async def _trigger_plug_cycle(
     db: AsyncSession, *, device_id: UUID
 ) -> tuple[bool, dict]:
-    """Returns (success, plug_result dict). Does NOT commit."""
+    """Returns (success, plug_result dict). Does NOT commit.
+
+    Side effect: flips the device's `power_state` to `resetting` for the
+    duration of the cycle, then to `on` on success or leaves it as
+    `resetting` on failure (admin will reconcile via mark-reset-done).
+    """
+    device = (
+        await db.execute(select(Device).where(Device.id == device_id))
+    ).scalar_one_or_none()
+    if device is None:
+        return False, {"error": "DEVICE_NOT_FOUND"}
+
     plug = (
         await db.execute(
             select(PlugMapping).where(PlugMapping.device_id == device_id)
         )
     ).scalar_one_or_none()
+
+    now = datetime.now(timezone.utc)
+    device.power_state = DevicePowerState.RESETTING
+    device.power_state_changed_at = now
+    await db.flush()
+
     if plug is None:
+        # No plug API to call — leave power_state=resetting, admin will
+        # do it by hand and click "Đã reset xong (tay)".
         return False, {"error": "NO_PLUG_MAPPED"}
+
     adapter = make_adapter(
         plug_type=plug.plug_type,
         plug_ip=str(plug.plug_ip),
@@ -176,8 +197,12 @@ async def _trigger_plug_cycle(
     )
     try:
         state = await adapter.power_cycle(off_seconds=5)
+        device.power_state = DevicePowerState.ON
+        device.power_state_changed_at = datetime.now(timezone.utc)
+        await db.flush()
         return True, {"powered_on": state.on, "raw": state.raw}
     except Exception as e:
+        # leave power_state=resetting, admin reconciles via mark-reset-done
         return False, {"error": str(e)}
 
 
