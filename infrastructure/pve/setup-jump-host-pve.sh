@@ -136,14 +136,14 @@ RESP=$(curl -sS --max-time 5 \
     -d "$(jq -nc --arg u "${USER:-vlab}" --arg ip "${CLIENT_IP}" \
         '{username:$u, client_ip:$ip}')" \
     "${BACKEND_URL%/}/api/gateway/resolve-target" 2>/dev/null) || {
-        echo "Gateway error: không lấy được thông tin kit (backend không trả lời)." >&2
+        echo "Gateway error: could not contact backend." >&2
         exit 1
     }
 
 OK=$(echo "$RESP" | jq -r 'if has("target_host") then "yes" else "no" end' 2>/dev/null)
 if [[ "$OK" != "yes" ]]; then
     REASON=$(echo "$RESP" | jq -r '.detail.code // "unknown"' 2>/dev/null)
-    echo "Gateway error: phiên không hợp lệ (${REASON}). Liên hệ admin nếu cần." >&2
+    echo "Gateway error: invalid session (${REASON}). Contact admin if this persists." >&2
     exit 1
 fi
 
@@ -159,7 +159,7 @@ EXPIRES_EPOCH=$(date -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
 NOW_EPOCH=$(date +%s)
 DURATION=$(( EXPIRES_EPOCH - NOW_EPOCH ))
 if [[ $DURATION -le 0 ]]; then
-    echo "Phiên đã hết hạn." >&2
+    echo "Your slot has already expired." >&2
     exit 1
 fi
 
@@ -181,7 +181,7 @@ if [[ $DURATION -gt 300 ]]; then
     WARN_AFTER=$(( DURATION - 300 ))
     (
         sleep $WARN_AFTER
-        printf '\r\n\r\n*** [VJU Lab Portal] Phi\xc3\xaan SSH s\xe1\xba\xbd k\xe1\xba\xbft th\xc3\xbac trong 5 ph\xc3\xbat. L\xc6\xb0u c\xc3\xb4ng vi\xe1\xbb\x87c c\xe1\xbb\xa7a b\xe1\xba\xa1n. ***\r\n\r\n' >&1
+        printf '\r\n\r\n*** [VJU Lab Portal] Your SSH session will end in 5 minutes. Please save your work. ***\r\n\r\n'
     ) &
     disown $! 2>/dev/null || true
 fi

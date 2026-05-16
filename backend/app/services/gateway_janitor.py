@@ -40,11 +40,13 @@ WARNING_LEAD_TIME = timedelta(minutes=5)
 
 def _banner_text(minutes_left: int) -> str:
     # \r before each line because the user's terminal may be in raw mode.
-    plural = "s" if minutes_left != 1 else ""
+    # English ASCII keeps the banner portable across MobaXterm / PuTTY /
+    # PowerShell regardless of their default codepage.
+    unit = "minute" if minutes_left == 1 else "minutes"
     return (
         "\r\n\r\n"
-        f"*** [VJU Lab Portal] Phiên SSH sẽ kết thúc trong "
-        f"{minutes_left} phút{plural}. Lưu công việc của bạn. ***"
+        f"*** [VJU Lab Portal] Your SSH session will end in "
+        f"{minutes_left} {unit}. Please save your work. ***"
         "\r\n\r\n"
     )
 
