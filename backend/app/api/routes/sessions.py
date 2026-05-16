@@ -154,11 +154,17 @@ async def provision(
     await db.refresh(sess)
 
     # SSH command rendered for direct paste into MobaXterm / PowerShell /
-    # any OpenSSH client. The -J flag handles ProxyJump natively.
+    # any OpenSSH client. The -J flag handles ProxyJump; -o ProxyCommand
+    # tunnels through Cloudflare Access (no router NAT needed) so users
+    # don't need to be on the lab LAN.
+    cf_access = (
+        f'cloudflared access ssh --hostname {settings.JUMP_HOST_PUBLIC}'
+    )
     ssh_command = (
-        f"ssh -i vju-session.key "
-        f"-J {session_tag}@{settings.JUMP_HOST_PUBLIC}:{settings.JUMP_HOST_PUBLIC_PORT} "
-        f"-p {device.ssh_port} {device.ssh_user}@{device.internal_ip}"
+        f'ssh -i vju-session.key '
+        f'-o ProxyCommand="{cf_access}" '
+        f'-J {session_tag}@{settings.JUMP_HOST_PUBLIC} '
+        f'{device.ssh_user}@{device.internal_ip}'
     )
 
     return {

@@ -198,6 +198,88 @@ def cf_ensure_dns_cname() -> None:
     log(f"  DNS OK — {fqdn} → {target}")
 
 
+def cf_ensure_ssh_dns() -> None:
+    """Ensure ssh.bcse-vju.com CNAME → <tunnel>.cfargotunnel.com (proxied).
+
+    Used by M5.7 SSH ProxyJump pattern — Cloudflare Tunnel TCP service
+    exposes SV14:22 publicly without needing router-level port forward.
+    """
+    fqdn = "ssh.bcse-vju.com"
+    subdomain = "ssh"
+    target = f"{CF_TUNNEL_ID}.cfargotunnel.com"
+    res = cf_get(f"/zones/{CF_ZONE_ID}/dns_records?type=CNAME&name={fqdn}")
+    body = {"type": "CNAME", "name": subdomain, "content": target,
+            "ttl": 1, "proxied": True,
+            "comment": "VJU Hardware Lab Portal — SSH gateway (M5.7 ProxyJump)"}
+    if res.get("result"):
+        rec = res["result"][0]
+        log(f"CF DNS — updating {fqdn} (id={rec['id']})")
+        out = cf_send("PUT", f"/zones/{CF_ZONE_ID}/dns_records/{rec['id']}", body)
+    else:
+        log(f"CF DNS — creating {fqdn}")
+        out = cf_send("POST", f"/zones/{CF_ZONE_ID}/dns_records", body)
+    if not out.get("success"):
+        raise RuntimeError(f"CF DNS (ssh) failed: {json.dumps(out, indent=2)}")
+    log(f"  DNS OK — {fqdn} → {target}")
+
+
+def cf_ensure_ssh_tunnel_rule() -> None:
+    """Add ingress rule ssh.bcse-vju.com → ssh://192.168.2.114:22 (SV14 sshd).
+
+    `cloudflared` on PVE proxies the TCP raw stream. End users wrap their
+    SSH client with `cloudflared access ssh --hostname ssh.bcse-vju.com`
+    (Linux/Mac binary or Windows .exe).
+    """
+    log("CF Tunnel — fetching current ingress for SSH rule")
+    cfg = cf_send(
+        "GET",
+        f"/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
+        {}, use_global_key=True,
+    )
+    if not cfg.get("success"):
+        raise RuntimeError(f"CF Tunnel GET failed: {json.dumps(cfg, indent=2)}")
+    config = cfg["result"]["config"] or {}
+    ingress = config.get("ingress", [])
+
+    ssh_hostname = "ssh.bcse-vju.com"
+    ssh_service = "ssh://192.168.2.114:22"
+
+    catch_all = None
+    for i, rule in enumerate(ingress):
+        if not rule.get("hostname") and rule.get("service", "").startswith("http_status"):
+            catch_all = i
+            break
+
+    found = False
+    for r in ingress:
+        if r.get("hostname") == ssh_hostname:
+            found = True
+            if r.get("service") != ssh_service:
+                r["service"] = ssh_service
+                log(f"  fixing service for {ssh_hostname} → {ssh_service}")
+            else:
+                log(f"  ingress {ssh_hostname} already correct ({ssh_service})")
+            break
+
+    if not found:
+        rule = {"hostname": ssh_hostname, "service": ssh_service}
+        if catch_all is not None:
+            ingress.insert(catch_all, rule)
+        else:
+            ingress.append(rule)
+        log(f"  added rule {ssh_hostname} → {ssh_service}")
+
+    new_cfg = {"config": {**config, "ingress": ingress}}
+    out = cf_send(
+        "PUT",
+        f"/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
+        new_cfg, use_global_key=True,
+    )
+    if not out.get("success"):
+        raise RuntimeError(f"CF Tunnel PUT (ssh) failed: {json.dumps(out, indent=2)}")
+    log("  Tunnel ingress updated for SSH.")
+
+
 def cf_ensure_tunnel_rule() -> None:
     """Add ingress rule sv14.bcse-vju.com → http://192.168.2.108:80 (SV08 nginx)."""
     log("CF Tunnel — fetching current ingress")
@@ -442,12 +524,21 @@ def main() -> int:
                     help="Skip nginx vhost on SV08")
     ap.add_argument("--skip-sv14", action="store_true",
                     help="Skip SV14 deploy")
+    ap.add_argument("--setup-ssh-tunnel", action="store_true",
+                    help="Only set up CF DNS + tunnel ingress for ssh.bcse-vju.com (M5.7).")
     ap.add_argument("--smoke-only", action="store_true",
                     help="Only run smoke test")
     args = ap.parse_args()
 
     if args.smoke_only:
         smoke_remote()
+        return 0
+
+    if args.setup_ssh_tunnel:
+        cf_ensure_ssh_dns()
+        cf_ensure_ssh_tunnel_rule()
+        log("SSH tunnel done. Test from your machine:")
+        log("  cloudflared access ssh --hostname ssh.bcse-vju.com")
         return 0
 
     if not args.skip_cf:

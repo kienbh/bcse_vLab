@@ -403,10 +403,43 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
             </p>
           </div>
 
-          {/* Step 2 — SSH command with ProxyJump */}
+          {/* Step 2 — Prereq: cloudflared CLI (one-time per machine) */}
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-              Bước 2 · Lệnh SSH (paste vào MobaXterm / PowerShell)
+              Bước 2 · Cài cloudflared (1 lần / máy)
+            </p>
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[11px] text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              <p>
+                Cloudflared là wrapper TCP gateway. Cài 1 lần rồi quên.
+              </p>
+              <ul className="ml-4 mt-1 list-disc space-y-0.5">
+                <li>
+                  <b>Windows</b>:{" "}
+                  <a
+                    className="underline"
+                    href="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    cloudflared-windows-amd64.exe
+                  </a>
+                  {" "}— rename thành <code>cloudflared.exe</code>, copy vào <code>C:\Windows\System32\</code>
+                </li>
+                <li>
+                  <b>Mac</b>: <code>brew install cloudflared</code>
+                </li>
+                <li>
+                  <b>Linux</b>:{" "}
+                  <code>sudo apt install cloudflared</code> (sau khi add CF apt repo) hoặc tải binary
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Step 3 — SSH command with ProxyJump + cloudflared ProxyCommand */}
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+              Bước 3 · Lệnh SSH (paste vào MobaXterm / PowerShell)
             </p>
             <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-slate-700 bg-slate-900">
               <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all px-3 py-2.5 font-mono text-xs text-emerald-300">
@@ -422,11 +455,11 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
             </div>
             {session.jump_user && (
               <p className="mt-1.5 text-[11px] text-slate-500">
-                Gateway:{" "}
+                cloudflared (HTTPS qua CF Tunnel) → gateway{" "}
                 <code className="font-mono">
-                  {session.jump_user}@{session.jump_host}:{session.jump_port}
-                </code>
-                {" → "}
+                  {session.jump_user}@{session.jump_host}
+                </code>{" "}
+                → KIT{" "}
                 <code className="font-mono">
                   {session.ssh_user}@{session.ssh_host}
                 </code>
