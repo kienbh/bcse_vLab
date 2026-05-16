@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, Loader2, Sparkles, Clock, X, ExternalLink, KeyRound } from "lucide-react";
+import { Calendar, Loader2, Sparkles, Clock, X, KeyRound } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Device } from "@/components/DeviceCard";
@@ -280,14 +280,19 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
 
 export interface SessionResult {
   session_id: string;
-  ssh_user: string;
-  ssh_host: string;
+  booking_id?: string;
+  ssh_user: string;        // user trên FPGA (ubuntu)
+  ssh_host: string;        // IP nội bộ FPGA (192.168.2.93)
   ssh_port: number;
   private_key: string;
-  password?: string | null;
-  password_set?: boolean;
-  wetty_url: string;
   fingerprint: string;
+  // ProxyJump endpoint (M5.7)
+  jump_user?: string;      // sess-abc123 — dynamic user trên SV14
+  jump_host?: string;      // ssh.bcse-vju.com
+  jump_port?: number;      // 2222
+  ssh_command?: string;    // lệnh hoàn chỉnh có sẵn -i -J
+  jump_user_ready?: boolean;
+  expires_at?: string;
   mocked: boolean;
 }
 
@@ -296,182 +301,169 @@ export interface SessionLaunchModalProps {
   onClose: () => void;
 }
 
-/** Password-based ssh command: simple `ssh user@host` (no -i flag). */
-function SshCommandBlockSimple({ user, host, port }: { user: string; host: string; port: number }) {
-  const cmd = port === 22 ? `ssh ${user}@${host}` : `ssh -p ${port} ${user}@${host}`;
-  const [copied, setCopied] = useState(false);
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(cmd);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch { /* ignore */ }
-  };
-  return (
-    <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-slate-700 bg-slate-900">
-      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-sm text-emerald-300">{cmd}</pre>
-      <button
-        type="button"
-        onClick={onCopy}
-        className="border-l border-slate-700 bg-slate-800 px-4 text-sm font-semibold text-slate-200 hover:bg-slate-700"
-      >
-        {copied ? "✓ Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
-
-function PasswordBlock({ password }: { password: string }) {
-  const [copied, setCopied] = useState(false);
-  const [visible, setVisible] = useState(true);
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(password);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch { /* ignore */ }
-  };
-  return (
-    <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30">
-      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-sm font-bold text-amber-900 dark:text-amber-200">
-        {visible ? password : "•".repeat(password.length)}
-      </pre>
-      <button
-        type="button"
-        onClick={() => setVisible((v) => !v)}
-        className="border-l border-amber-400 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60"
-      >
-        {visible ? "Hide" : "Show"}
-      </button>
-      <button
-        type="button"
-        onClick={onCopy}
-        className="border-l border-amber-400 bg-amber-200 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-300 dark:border-amber-700 dark:bg-amber-800/60 dark:text-amber-100 dark:hover:bg-amber-700/60"
-      >
-        {copied ? "✓ Copied" : "Copy"}
-      </button>
-    </div>
-  );
-}
-
 export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps) {
-  const [copied, setCopied] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
+  const [copiedCmd, setCopiedCmd] = useState(false);
+
+  const cmd =
+    session.ssh_command ??
+    `ssh -i vju-session.key -p ${session.ssh_port} ${session.ssh_user}@${session.ssh_host}`;
+
   const copyKey = async () => {
     try {
       await navigator.clipboard.writeText(session.private_key);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* ignore */
-    }
+      setCopiedKey(true);
+      setTimeout(() => setCopiedKey(false), 1800);
+    } catch { /* ignore */ }
   };
+  const copyCmd = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopiedCmd(true);
+      setTimeout(() => setCopiedCmd(false), 1800);
+    } catch { /* ignore */ }
+  };
+  const downloadKey = () => {
+    const blob = new Blob([session.private_key], { type: "application/x-pem-file" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "vju-session.key";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const expiresLabel = session.expires_at
+    ? new Date(session.expires_at).toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-2 backdrop-blur-sm md:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="surface flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden p-0"
+        className="surface w-full max-w-2xl overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-200 bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 text-white dark:border-slate-700">
-          <div className="min-w-0">
+        <header className="flex items-start justify-between border-b border-slate-200 bg-gradient-to-r from-vju-500 to-vju-700 px-5 py-4 text-white dark:border-slate-700">
+          <div>
             <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-              Terminal · phiên qua gateway SV14 {session.mocked && "(mock)"}
+              Session sẵn sàng {session.mocked && "(mock)"}
             </p>
-            <h2 className="truncate text-base font-bold leading-tight">
-              {session.ssh_user}@{session.ssh_host}:{session.ssh_port}
+            <h2 className="text-lg font-bold leading-tight">
+              SSH qua gateway · {session.ssh_user}@{session.ssh_host}
             </h2>
+            {expiresLabel && (
+              <p className="mt-0.5 text-xs opacity-90">Hết slot: {expiresLabel}</p>
+            )}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced((v) => !v)}
-              className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/20"
-            >
-              {showAdvanced ? "Ẩn options" : "SSH client / Password"}
-            </button>
-            <a
-              href={session.wetty_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-md bg-white/10 px-3 py-1.5 text-xs font-semibold text-white/90 hover:bg-white/20"
-              title="Mở terminal trong tab mới (toàn màn hình)"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Tab mới
-            </a>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-white/80 hover:bg-white/10 hover:text-white"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </header>
 
-        {/* Inline terminal — wetty embedded via iframe through the same
-            Cloudflare Tunnel + SV14 gateway. No new browser tab needed. */}
-        <iframe
-          src={session.wetty_url}
-          title="VJU Lab Terminal"
-          className="flex-1 w-full border-0 bg-black"
-          allow="clipboard-read; clipboard-write"
-        />
-
-        {showAdvanced && (
-          <div className="max-h-[40vh] overflow-y-auto border-t border-slate-200 bg-slate-50 px-5 py-4 text-xs dark:border-slate-700 dark:bg-slate-900/50">
-            <div className="space-y-3">
-              <p className="text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                Power-user · SSH client native (cần route LAN / VPN tới {session.ssh_host})
-              </p>
-              <div>
-                <p className="mb-1 text-[11px] font-semibold text-slate-500">Lệnh SSH:</p>
-                <SshCommandBlockSimple
-                  user={session.ssh_user}
-                  host={session.ssh_host}
-                  port={session.ssh_port}
-                />
-              </div>
-              {session.password && (
-                <div>
-                  <p className="mb-1 text-[11px] font-semibold text-slate-500">Password:</p>
-                  <PasswordBlock password={session.password} />
-                </div>
-              )}
-              <details className="rounded-md border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-800">
-                <summary className="cursor-pointer px-2 py-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  <KeyRound className="mr-1 inline h-3 w-3" />
-                  Hoặc dùng private key
-                </summary>
-                <div className="space-y-1 px-2 py-2">
-                  <button
-                    type="button"
-                    onClick={copyKey}
-                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold dark:border-slate-600 dark:bg-slate-700"
-                  >
-                    {copied ? "✓ Copied" : "Copy private key"}
-                  </button>
-                  <textarea
-                    readOnly
-                    value={session.private_key}
-                    rows={5}
-                    onFocus={(e) => e.currentTarget.select()}
-                    className="block w-full rounded-md border border-slate-300 bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300 dark:border-slate-700"
-                  />
-                </div>
-              </details>
-              <p className="text-[10px] text-slate-500">
-                Hết slot, sweeper revoke key + reset password trên KIT. Fingerprint:{" "}
-                <code className="font-mono">{session.fingerprint}</code>
-              </p>
+        <div className="space-y-5 p-5">
+          {/* Step 1 — private key */}
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+              Bước 1 · Lưu private key vào máy
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={downloadKey}
+                className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-sm font-bold text-white shadow hover:shadow-lg"
+              >
+                <KeyRound className="h-4 w-4" />
+                Tải vju-session.key
+              </button>
+              <button
+                type="button"
+                onClick={copyKey}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+              >
+                {copiedKey ? "✓ Copied" : "Copy nội dung key"}
+              </button>
             </div>
+            <p className="mt-1.5 text-[10px] text-slate-500">
+              Linux/Mac: <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">chmod 600 vju-session.key</code>
+              {" · "}Windows PowerShell:{" "}
+              <code className="rounded bg-slate-100 px-1 dark:bg-slate-800">icacls vju-session.key /inheritance:r /grant:r &quot;${"{env:USERNAME}"}:R&quot;</code>
+            </p>
           </div>
-        )}
+
+          {/* Step 2 — SSH command with ProxyJump */}
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+              Bước 2 · Lệnh SSH (paste vào MobaXterm / PowerShell)
+            </p>
+            <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-slate-700 bg-slate-900">
+              <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all px-3 py-2.5 font-mono text-xs text-emerald-300">
+                {cmd}
+              </pre>
+              <button
+                type="button"
+                onClick={copyCmd}
+                className="border-l border-slate-700 bg-slate-800 px-4 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+              >
+                {copiedCmd ? "✓ Copied" : "Copy"}
+              </button>
+            </div>
+            {session.jump_user && (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Gateway:{" "}
+                <code className="font-mono">
+                  {session.jump_user}@{session.jump_host}:{session.jump_port}
+                </code>
+                {" → "}
+                <code className="font-mono">
+                  {session.ssh_user}@{session.ssh_host}
+                </code>
+              </p>
+            )}
+          </div>
+
+          {/* Lifecycle note */}
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-[12px] text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+            <p className="font-semibold">⚡ Hết slot:</p>
+            <ul className="ml-5 list-disc space-y-0.5 text-[11px]">
+              <li>
+                Gateway SV14 xóa user{" "}
+                <code className="font-mono">{session.jump_user ?? "session"}</code>
+              </li>
+              <li>Mọi nỗ lực reconnect đều fail tại tầng gateway</li>
+              <li>Audit log lưu lại toàn bộ phiên</li>
+            </ul>
+          </div>
+
+          <details className="rounded-md border border-slate-200 dark:border-slate-700">
+            <summary className="cursor-pointer px-3 py-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              <KeyRound className="mr-1 inline h-3 w-3" />
+              Xem private key text (nếu không tải được file)
+            </summary>
+            <textarea
+              readOnly
+              value={session.private_key}
+              rows={8}
+              onFocus={(e) => e.currentTarget.select()}
+              className="block w-full border-0 bg-slate-900 px-3 py-2 font-mono text-[10px] text-emerald-300"
+            />
+            <p className="px-3 py-1 text-[10px] text-slate-500">
+              Fingerprint: <code className="font-mono">{session.fingerprint}</code>
+            </p>
+          </details>
+        </div>
       </div>
     </div>
   );

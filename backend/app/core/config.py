@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     BACKEND_SSH_KEY_PASSPHRASE: SecretStr = SecretStr("")
     DEVICE_KEY_ENCRYPTION_KEY: SecretStr = SecretStr("dev_only_32_chars_aes_xxxxxxxxxx")
 
+    # SV14 itself — backend SSHs here to create/delete dynamic jump users
+    SV14_HOST: str = "192.168.2.114"
+    SV14_SSH_PORT: int = 22
+    SV14_SSH_USER: str = "student"
+    # Public-facing endpoint shown to users in the SSH command
+    JUMP_HOST_PUBLIC: str = "ssh.bcse-vju.com"
+    JUMP_HOST_PUBLIC_PORT: int = 2222
+
     PLUG_API_TIMEOUT_SECONDS: int = 10
     PLUG_API_RETRY_COUNT: int = 3
 

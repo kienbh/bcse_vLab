@@ -130,31 +130,10 @@ services:
       backend:
         condition: service_started
 
-  wetty:
-    image: wettyoss/wetty:latest
-    restart: unless-stopped
-    mem_limit: 128m
-    mem_reservation: 64m
-    mem_swappiness: 10
-    # SSH key + allow-remote-hosts so URL `/term/ssh/<user>@<host>[:port]`
-    # connects to any device on the lab LAN using portal_admin_ed25519 (which
-    # has been pre-installed in ~ubuntu/.ssh/authorized_keys of every KIT).
-    command: >
-      --base /term/
-      --port 3000
-      --title "VJU Lab Terminal"
-      --allow-iframe true
-      --allow-remote-hosts true
-      --ssh-key /keys/portal_admin_ed25519
-      --ssh-auth publickey
-      --known-hosts /dev/null
-    volumes:
-      - backend_ssh_keys:/keys:ro
-    networks:
-      - internal
-      - lan
-    ports:
-      - "0.0.0.0:3001:3000"
+  # wetty service removed in M5.7 — pattern switched to SSH ProxyJump.
+  # Users now SSH from MobaXterm/PowerShell with `ssh -i key -J jump@ssh.bcse-vju.com:2222 ubuntu@host`.
+  # Gateway is SV14 sshd itself, with dynamic per-session jump users.
+  # See infrastructure/sv14/setup-jump-host.sh.
 
 networks:
   internal:

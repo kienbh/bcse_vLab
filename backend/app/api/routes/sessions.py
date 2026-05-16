@@ -102,7 +102,9 @@ async def provision(
         await db.flush()
 
     settings = get_settings()
-    session_tag = f"sess-{uuid4().hex[:12]}"
+    # session_tag doubles as the dynamic Linux user on SV14. It must match
+    # the `sess-*` sudoers wildcard (lowercase alphanumeric, ≤30 chars).
+    session_tag = f"sess-{uuid4().hex[:10]}"
     result = await ssh_manager.provision_session(
         device_internal_ip=str(device.internal_ip),
         device_ssh_port=device.ssh_port,
@@ -112,16 +114,17 @@ async def provision(
         expires_at_iso=booking.end_time.isoformat(),
     )
 
-    # Set a one-shot password on the KIT user — UX simpler than key file:
-    # user copies `ssh user@host` + password into MobaXterm/PuTTY/terminal.
-    # This is independent of the ephemeral key flow; both auth paths work.
-    session_password = ssh_manager.generate_session_password(12)
-    password_set_ok = await ssh_manager.set_user_password(
-        device_internal_ip=str(device.internal_ip),
-        device_ssh_port=device.ssh_port,
-        device_ssh_user=device.ssh_user,
+    # ProxyJump pattern (M5.7): create a dynamic SSH user on SV14 with the
+    # ephemeral pubkey. User SSHes to ssh.bcse-vju.com:2222 as session_tag,
+    # then jumps to the FPGA — both hops auth with the same private key
+    # because the FPGA already trusts portal_admin's pubkey from M5.6 setup.
+    jump_user_ok = await ssh_manager.create_jump_user(
+        sv14_host=settings.SV14_HOST,
+        sv14_ssh_port=settings.SV14_SSH_PORT,
+        sv14_ssh_user=settings.SV14_SSH_USER,
         backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
-        new_password=session_password,
+        session_tag=session_tag,
+        pubkey_line=result.public_key_line,
     )
 
     sess = DBSession(
@@ -143,11 +146,20 @@ async def provision(
             "device_id": str(device.id),
             "fingerprint": result.fingerprint,
             "mocked": result.mocked,
+            "jump_user_created": jump_user_ok,
         },
         request=request,
     )
     await db.commit()
     await db.refresh(sess)
+
+    # SSH command rendered for direct paste into MobaXterm / PowerShell /
+    # any OpenSSH client. The -J flag handles ProxyJump natively.
+    ssh_command = (
+        f"ssh -i vju-session.key "
+        f"-J {session_tag}@{settings.JUMP_HOST_PUBLIC}:{settings.JUMP_HOST_PUBLIC_PORT} "
+        f"-p {device.ssh_port} {device.ssh_user}@{device.internal_ip}"
+    )
 
     return {
         "session_id": str(sess.id),
@@ -157,15 +169,13 @@ async def provision(
         "ssh_port": device.ssh_port,
         "fingerprint": result.fingerprint,
         "private_key": result.private_key_pem,
-        # Password-based auth: primary UX path for non-technical users
-        # (MobaXterm, PuTTY, plain `ssh` + paste password). Falls back gracefully
-        # if password_set_ok=false — frontend won't show the password block.
-        "password": session_password if password_set_ok else None,
-        "password_set": password_set_ok,
-        # Wetty 2.x path syntax: /term/ssh/<user>@<host>:<port>. The wetty
-        # container has portal_admin_ed25519 mounted at /keys/ and authenticates
-        # to every KIT with it (publickey only, --allow-remote-hosts).
-        "wetty_url": f"/term/ssh/{device.ssh_user}@{device.internal_ip}:{device.ssh_port}",
+        # ProxyJump endpoint — the only credential the user needs paste
+        # along with the private key.
+        "jump_user": session_tag,
+        "jump_host": settings.JUMP_HOST_PUBLIC,
+        "jump_port": settings.JUMP_HOST_PUBLIC_PORT,
+        "ssh_command": ssh_command,
+        "jump_user_ready": jump_user_ok,
         "expires_at": booking.end_time.isoformat(),
         "mocked": result.mocked,
     }

@@ -196,6 +196,97 @@ async def lock_user_password(
     )
 
 
+async def create_jump_user(
+    *,
+    sv14_host: str,
+    sv14_ssh_port: int,
+    sv14_ssh_user: str,
+    backend_admin_key_path: str,
+    session_tag: str,
+    pubkey_line: str,
+) -> bool:
+    """Create a dynamic SSH jump user on SV14 + install the user's pubkey.
+
+    The SV14 host must already have `setup-jump-host.sh` applied — that
+    installs the constrained sudoers rules + sshd Match-Group block. This
+    function relies on those constraints; without them sudo will reject
+    or `Match Group vjujump` won't restrict to PermitOpen.
+
+    On success the user can `ssh -J <session_tag>@sv14_public:port host:22`
+    to any KIT in the Match Group's PermitOpen whitelist.
+
+    Returns True only when every step succeeded.
+    """
+    if not os.path.exists(backend_admin_key_path):
+        return False
+    # session_tag must match `sess-<alnum>` because the sudoers rule
+    # restricts the username pattern; reject anything else early.
+    if not session_tag.startswith("sess-") or len(session_tag) > 30:
+        return False
+
+    home = f"/home/{session_tag}"
+    cmds = [
+        f"sudo /usr/sbin/useradd -m -s /usr/sbin/nologin -G vjujump {session_tag}",
+        f"sudo /usr/bin/install -d -m 700 -o {session_tag} -g {session_tag} {home}/.ssh",
+        f"echo {shlex.quote(pubkey_line)} | sudo /usr/bin/tee {home}/.ssh/authorized_keys > /dev/null",
+        f"sudo /usr/bin/chmod 600 {home}/.ssh/authorized_keys",
+        f"sudo /usr/bin/chown {session_tag}:{session_tag} {home}/.ssh/authorized_keys",
+    ]
+    try:
+        async with asyncssh.connect(
+            sv14_host,
+            port=sv14_ssh_port,
+            username=sv14_ssh_user,
+            client_keys=[backend_admin_key_path],
+            known_hosts=None,
+        ) as conn:
+            for c in cmds:
+                r = await conn.run(c, check=False)
+                if r.exit_status != 0:
+                    # On failure, attempt to roll back so we don't leak users.
+                    await conn.run(
+                        f"sudo /usr/sbin/userdel -r {session_tag}", check=False
+                    )
+                    return False
+        return True
+    except (asyncssh.Error, OSError):
+        return False
+
+
+async def delete_jump_user(
+    *,
+    sv14_host: str,
+    sv14_ssh_port: int,
+    sv14_ssh_user: str,
+    backend_admin_key_path: str,
+    session_tag: str,
+) -> bool:
+    """Remove a jump user from SV14 — `userdel -r` drops home + keys atomically.
+
+    Idempotent: returns True if the user is gone (either we deleted it or
+    it didn't exist).
+    """
+    if not os.path.exists(backend_admin_key_path):
+        return False
+    if not session_tag.startswith("sess-") or len(session_tag) > 30:
+        return False
+    try:
+        async with asyncssh.connect(
+            sv14_host,
+            port=sv14_ssh_port,
+            username=sv14_ssh_user,
+            client_keys=[backend_admin_key_path],
+            known_hosts=None,
+        ) as conn:
+            r = await conn.run(
+                f"sudo /usr/sbin/userdel -r {session_tag}", check=False
+            )
+            # `userdel` returns 6 if the user doesn't exist — that's fine.
+            return r.exit_status in (0, 6)
+    except (asyncssh.Error, OSError):
+        return False
+
+
 async def revoke_session(
     *,
     device_internal_ip: str,

@@ -64,36 +64,33 @@ async def revoke_expired_sessions() -> int:
             return 0
 
         for sess, booking, device in rows:
-            # Extract the session tag embedded in the pubkey comment
+            # Extract the session tag embedded in the pubkey comment. With
+            # M5.7 ProxyJump pattern, this tag IS the dynamic Linux user on
+            # SV14 (e.g. "sess-abc123def"). Deleting that user removes their
+            # authorized_keys → next ssh -J attempt is rejected by SV14 sshd.
             old_tag = ""
             if sess.ssh_pubkey and "session=" in sess.ssh_pubkey:
                 old_tag = sess.ssh_pubkey.split("session=")[-1].split(" ")[0]
 
             if old_tag:
                 try:
-                    await ssh_manager.revoke_session(
-                        device_internal_ip=str(device.internal_ip),
-                        device_ssh_port=device.ssh_port,
-                        device_ssh_user=device.ssh_user,
+                    deleted = await ssh_manager.delete_jump_user(
+                        sv14_host=settings.SV14_HOST,
+                        sv14_ssh_port=settings.SV14_SSH_PORT,
+                        sv14_ssh_user=settings.SV14_SSH_USER,
                         backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
                         session_tag=old_tag,
                     )
+                    if not deleted:
+                        logger.warning(
+                            f"sweep: userdel {old_tag} on SV14 returned non-zero — "
+                            "marking session ended anyway"
+                        )
                 except Exception as e:
                     logger.warning(
-                        f"sweep: revoke ssh on {device.name} failed (will mark "
-                        f"session ended anyway): {e}"
+                        f"sweep: delete jump user {old_tag} on SV14 raised "
+                        f"(marking session ended anyway): {e}"
                     )
-            # Lock password too — set to a random unknown value so the user
-            # who copied it from the modal can't log back in after slot expiry.
-            try:
-                await ssh_manager.lock_user_password(
-                    device_internal_ip=str(device.internal_ip),
-                    device_ssh_port=device.ssh_port,
-                    device_ssh_user=device.ssh_user,
-                    backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
-                )
-            except Exception as e:
-                logger.warning(f"sweep: lock password on {device.name} failed: {e}")
 
             sess.status = SessionStatus.COMPLETED
             sess.ended_at = now
