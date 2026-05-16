@@ -103,7 +103,8 @@ PASSWORD="$(cat || true)"
 [[ "${PAM_USER:-}" != "vlab" ]] && exit 1  # belt + suspenders — only vlab
 
 CLIENT_IP="${PAM_RHOST:-unknown}"
-RESP=$(curl -sS --max-time 3 \
+RESP=$(curl -sS --max-time 10 \
+    --connect-timeout 4 \
     -H 'Content-Type: application/json' \
     -H "X-Gateway-Secret: ${GATEWAY_SHARED_SECRET}" \
     -d "$(jq -nc --arg u "${PAM_USER}" --arg p "${PASSWORD}" --arg ip "${CLIENT_IP}" \

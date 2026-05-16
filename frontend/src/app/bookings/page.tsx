@@ -244,7 +244,10 @@ function BookingsInner() {
               const now = Date.now();
               const start = new Date(b.start_time).getTime();
               const end = new Date(b.end_time).getTime();
-              const canConnect = (b.status === "scheduled" || b.status === "active") && now >= start - 5 * 60_000 && now < end;
+              // Connect chỉ active khi slot đã bắt đầu (giúp UX khớp countdown).
+              // Backend giữ grace 5 phút như cũ — đây chỉ là UI gate.
+              const canConnect = (b.status === "scheduled" || b.status === "active") && now >= start && now < end;
+              const showLockedConnect = b.status === "scheduled" && now < start;
               const canCancel = b.status === "scheduled" || b.status === "active";
               return (
                 <li key={b.id} className="surface flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
@@ -275,6 +278,17 @@ function BookingsInner() {
                       >
                         <ExternalLink className="h-3 w-3" />
                         Connect
+                      </button>
+                    )}
+                    {showLockedConnect && (
+                      <button
+                        type="button"
+                        disabled
+                        title={`Bắt đầu lúc ${fmt(b.start_time)}`}
+                        className="inline-flex cursor-not-allowed items-center gap-1 rounded-md bg-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-500"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        Chưa tới giờ
                       </button>
                     )}
                     {canCancel && (

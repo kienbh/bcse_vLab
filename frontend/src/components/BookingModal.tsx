@@ -99,7 +99,7 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
           ok: true,
           msg: "✓ Đặt lịch thành công. Đến giờ vào Bookings → Get SSH access để lấy password.",
         });
-        setTimeout(onBooked, 1200);
+        // Không auto-close nữa — để user chọn "Xem lịch đặt" hoặc tiếp tục đặt slot khác.
       } else {
         const err = await r.json().catch(() => ({}));
         const code = err?.detail?.code ?? "ERROR";
@@ -217,14 +217,33 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calendar className="h-4 w-4" />}
-            Xác nhận đặt slot
-          </button>
+          {result?.ok ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <a
+                href="/bookings"
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-vju-500 to-vju-700 px-4 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg"
+              >
+                <Calendar className="h-4 w-4" />
+                Xem lịch đặt của tôi
+              </a>
+              <button
+                type="button"
+                onClick={onBooked}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                Đóng
+              </button>
+            </div>
+          ) : (
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calendar className="h-4 w-4" />}
+              Xác nhận đặt slot
+            </button>
+          )}
 
           <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
             <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold">
