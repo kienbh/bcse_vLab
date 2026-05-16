@@ -570,6 +570,44 @@ def read_sv14_secret(jump: paramiko.SSHClient, key: str) -> str:
         c.close()
 
 
+def _ship_backend_key_to_pve(jump: paramiko.SSHClient) -> None:
+    """Copy the backend ed25519 admin key (already trusted by every kit) from
+    the SV14 backend container to /etc/vlab/backend_ed25519 on the PVE host.
+
+    vlab-jump.sh runs `ssh -i $KIT_KEY_PATH` against the assigned kit; without
+    this key the ForceCommand wrapper has no way to authenticate as ubuntu.
+    Idempotent — overwrite the key each run is fine, the SV14 volume is the
+    source of truth.
+    """
+    log("  copying backend admin key SV14 → PVE /etc/vlab/backend_ed25519")
+    sv14 = vps_client(jump, SV14_IP, SV14_USER, SV14_PASS)
+    try:
+        rc, key_b64, err = sudo_run(
+            sv14,
+            "docker exec vju-lab-portal-backend-1 base64 -w0 /app/ssh-keys/portal_admin_ed25519",
+            SV14_PASS,
+            check=False,
+            timeout=20,
+        )
+        if rc != 0 or not key_b64.strip():
+            raise RuntimeError(f"could not read backend key from SV14 container: {err}")
+    finally:
+        sv14.close()
+
+    import base64
+    key_bytes = base64.b64decode(key_b64.strip().split()[-1])
+
+    sftp = jump.open_sftp()
+    try:
+        with sftp.file("/etc/vlab/backend_ed25519", "wb") as f:
+            f.write(key_bytes)
+        sftp.chmod("/etc/vlab/backend_ed25519", 0o600)
+    finally:
+        sftp.close()
+    run(jump, "chown vlab:vlab /etc/vlab/backend_ed25519", check=True)
+    log("  key in place (mode 600, owner vlab)")
+
+
 def deploy_pve_jump_host(jump: paramiko.SSHClient, *, gateway_secret: str) -> None:
     """ADR-0013 / M5.8 — install the static-vlab + PAM-exec gateway on the
     PVE host. Idempotent: re-runs replace scripts + restore PAM block, but
@@ -578,9 +616,8 @@ def deploy_pve_jump_host(jump: paramiko.SSHClient, *, gateway_secret: str) -> No
     log("PVE jump host — install vlab user + PAM gateway (ADR-0013)")
     log("=" * 60)
 
-    # Backend URL the PAM script will POST to. Cloudflare Tunnel takes
-    # backend.bcse-vju.com → SV14 backend; PVE host reaches SV14 over
-    # the LAN, so we use the LAN URL to skip TLS hop.
+    # Backend URL the PAM script will POST to. PVE host reaches SV14 over
+    # the LAN, so we use the LAN URL to skip the TLS hop.
     backend_url = f"http://{SV14_IP}:8000"
 
     script_local = PROJECT_ROOT / "infrastructure" / "pve" / "setup-jump-host-pve.sh"
@@ -590,7 +627,6 @@ def deploy_pve_jump_host(jump: paramiko.SSHClient, *, gateway_secret: str) -> No
     remote_path = "/root/setup-jump-host-pve.sh"
     upload(jump, script_local, remote_path)
     run(jump, f"chmod 755 {remote_path}", check=True)
-    # Run with the secret + backend URL in env.
     cmd = (
         f"BACKEND_URL={backend_url} "
         f"GATEWAY_SHARED_SECRET={shlex.quote(gateway_secret)} "
@@ -602,6 +638,10 @@ def deploy_pve_jump_host(jump: paramiko.SSHClient, *, gateway_secret: str) -> No
         log("  stderr: " + err.strip())
     if rc != 0:
         raise RuntimeError(f"PVE jump host setup exited {rc}")
+
+    # ForceCommand wrapper needs the backend admin key — pulled from SV14.
+    _ship_backend_key_to_pve(jump)
+
     log("  PVE jump host ready.")
 
 
