@@ -192,7 +192,7 @@ function BookingsInner() {
           src="/images/lab-circuit-art.png"
           alt=""
           aria-hidden="true"
-          className="h-48 w-full object-cover md:h-72 lg:h-80"
+          className="h-48 w-full object-cover object-[50%_75%] md:h-72 lg:h-80"
         />
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-900/40 to-transparent" />
         <div className="absolute inset-0 flex flex-col justify-center px-6 md:px-10">

@@ -57,27 +57,32 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center gap-6 px-4 py-12 md:py-16">
-      {/* Decorative lab stack — clean navy mood */}
-      <div className="relative w-full overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+    <div className="mx-auto flex max-w-md flex-col gap-5 px-4 py-10 md:py-14">
+      {/* Hero banner — cinematic Kria rack with title overlay */}
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 shadow-md dark:border-slate-700">
         <img
-          src="/images/lab-stack-minimal.png"
+          src="/images/lab-hero-cinematic.png"
           alt=""
           aria-hidden="true"
-          className="h-32 w-full object-cover"
+          className="h-44 w-full object-cover md:h-52"
         />
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/60 via-transparent to-transparent" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/40 to-slate-950/10" />
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-white/15 text-white shadow-sm backdrop-blur-sm">
+            <ShieldCheck className="h-6 w-6" />
+          </div>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white drop-shadow md:text-4xl">
+            Đăng nhập
+          </h1>
+        </div>
       </div>
-      <div className="grid h-14 w-14 -mt-12 place-items-center rounded-2xl bg-gradient-to-br from-vju-500 to-vju-700 text-white shadow-lg ring-4 ring-white dark:ring-slate-950">
-        <ShieldCheck className="h-7 w-7" />
-      </div>
-      <div className="space-y-2 text-center">
-        <h1 className="text-3xl font-bold tracking-tight md:text-4xl">Đăng nhập</h1>
-        <p className="text-sm text-slate-600 dark:text-slate-400">
-          Dùng email VJU đã được cấp + mật khẩu mặc định <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">VJU@2026</code>.
-          Lần đầu đăng nhập, hệ thống sẽ yêu cầu đổi mật khẩu.
-        </p>
-      </div>
+      <p className="text-center text-sm text-slate-600 dark:text-slate-400">
+        Dùng email VJU đã được cấp + mật khẩu mặc định{" "}
+        <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs dark:bg-slate-800">
+          VJU@2026
+        </code>
+        . Lần đầu đăng nhập, hệ thống sẽ yêu cầu đổi mật khẩu.
+      </p>
 
       <form onSubmit={submit} className="surface w-full space-y-4 p-6">
         <label className="block text-xs font-semibold text-slate-600 dark:text-slate-400">
