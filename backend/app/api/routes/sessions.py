@@ -95,8 +95,10 @@ async def provision(
             except Exception:
                 # Don't block re-issue if revoke best-effort fails — sed/ssh might be flaky.
                 pass
-        existing.status = SessionStatus.COMPLETED
-        existing.ended_at = datetime.now(timezone.utc)
+        # sessions.booking_id has a UNIQUE constraint, so we cannot INSERT a
+        # second row — delete the old one (audit_log entry below + audit_logs
+        # table preserves the history independent of the session table).
+        await db.delete(existing)
         await db.flush()
 
     settings = get_settings()

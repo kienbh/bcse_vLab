@@ -1,4 +1,5 @@
 """FastAPI application entrypoint."""
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,6 +20,7 @@ from app.api.routes import (
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.services.session_lifecycle import periodic_sweep
 
 
 @asynccontextmanager
@@ -31,8 +33,16 @@ async def lifespan(app: FastAPI):
         env=settings.ENV,
         debug=settings.DEBUG,
     )
-    yield
-    logger.info("shutting down vju-lab-portal-api")
+    sweeper_task = asyncio.create_task(periodic_sweep())
+    try:
+        yield
+    finally:
+        sweeper_task.cancel()
+        try:
+            await sweeper_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        logger.info("shutting down vju-lab-portal-api")
 
 
 def create_app() -> FastAPI:

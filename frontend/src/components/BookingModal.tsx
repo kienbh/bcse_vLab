@@ -294,6 +294,30 @@ export interface SessionLaunchModalProps {
   onClose: () => void;
 }
 
+function SshCommandBlock({ user, host, port }: { user: string; host: string; port: number }) {
+  const cmd = `ssh -i ~/.ssh/vju-session -p ${port} ${user}@${host}`;
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* ignore */ }
+  };
+  return (
+    <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-slate-700 bg-slate-900">
+      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-xs text-emerald-300">{cmd}</pre>
+      <button
+        type="button"
+        onClick={onCopy}
+        className="border-l border-slate-700 bg-slate-800 px-3 text-xs font-semibold text-slate-200 hover:bg-slate-700"
+      >
+        {copied ? "✓ Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
 export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps) {
   const [copied, setCopied] = useState(false);
   const copyKey = async () => {
@@ -335,47 +359,80 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
         </header>
 
         <div className="space-y-4 p-5">
-          <a
-            href={session.wetty_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-vju-500 to-vju-700 px-4 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg"
-          >
-            <ExternalLink className="h-4 w-4" />
-            Mở web terminal (wetty) trong tab mới
-          </a>
-
-          <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
-            <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold">
-              <KeyRound className="h-3.5 w-3.5 text-accent-500" />
-              Hoặc dùng SSH client native (private key chỉ hiện 1 lần)
-            </summary>
-            <div className="space-y-2 px-3 py-2 pt-0">
-              <p className="text-[11px] text-slate-500">
-                Lưu key vào file (vd <code className="rounded bg-slate-200 px-1 dark:bg-slate-700">~/.ssh/vju-session</code>), chmod 600, rồi:
+          {/* Primary: SSH command + key for native client (the workflow thầy chose) */}
+          <div className="space-y-3">
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                Bước 1 · Lệnh SSH (copy vào terminal của bạn)
               </p>
-              <pre className="overflow-x-auto rounded-md bg-slate-900 px-3 py-2 font-mono text-[11px] text-emerald-300">
-                ssh -i ~/.ssh/vju-session -p {session.ssh_port} {session.ssh_user}@{session.ssh_host}
-              </pre>
+              <SshCommandBlock
+                user={session.ssh_user}
+                host={session.ssh_host}
+                port={session.ssh_port}
+              />
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                Bước 2 · Private key (chỉ hiện 1 lần — lưu lại + chmod 600)
+              </p>
               <button
                 type="button"
                 onClick={copyKey}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+                className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-sm font-bold text-white shadow hover:shadow-lg"
               >
-                {copied ? "✓ Đã copy private key" : "Copy private key"}
+                <KeyRound className="h-4 w-4" />
+                {copied ? "✓ Đã copy private key" : "Copy private key vào clipboard"}
               </button>
               <textarea
                 readOnly
                 value={session.private_key}
-                rows={8}
-                className="block w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                rows={9}
+                onFocus={(e) => e.currentTarget.select()}
+                className="block w-full rounded-md border border-slate-300 bg-slate-900 px-3 py-2 font-mono text-[10px] text-emerald-300 dark:border-slate-700"
               />
             </div>
-          </details>
 
-          <p className="text-[11px] text-slate-500">
-            Fingerprint: <code className="font-mono">{session.fingerprint}</code>
-          </p>
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+              <p className="font-semibold mb-1">📋 Hướng dẫn nhanh (terminal Linux/Mac):</p>
+              <pre className="overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300">
+{`# 1. Lưu key (đã copy ở Bước 2):
+cat > ~/.ssh/vju-session <<'EOF'
+<paste private key vào đây>
+EOF
+chmod 600 ~/.ssh/vju-session
+
+# 2. SSH vào FPGA:
+ssh -i ~/.ssh/vju-session -p ${session.ssh_port} ${session.ssh_user}@${session.ssh_host}`}
+              </pre>
+              <p className="mt-2 text-slate-500">
+                Trên Windows: dùng PowerShell hoặc Git Bash, đường dẫn key tương tự.
+                Hết giờ slot, gateway tự revoke key → SSH disconnected.
+              </p>
+            </div>
+
+            <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <ExternalLink className="h-3.5 w-3.5" />
+                Hoặc mở terminal trong browser (wetty) — fallback nếu không có SSH client
+              </summary>
+              <div className="px-3 py-2">
+                <a
+                  href={session.wetty_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Mở web terminal
+                </a>
+              </div>
+            </details>
+
+            <p className="text-[11px] text-slate-500">
+              Fingerprint: <code className="font-mono">{session.fingerprint}</code>
+            </p>
+          </div>
         </div>
       </div>
     </div>
