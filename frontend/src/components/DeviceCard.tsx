@@ -373,25 +373,36 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
 
       <div className="flex flex-col gap-3 p-5">
         {/* Live ssh probe line */}
-        <div className="flex items-center justify-between rounded-md bg-slate-100 px-3 py-1.5 font-mono text-[11px] text-slate-600 dark:bg-slate-900 dark:text-slate-300">
+        <div
+          className="flex items-center justify-between rounded-md bg-slate-100 px-3 py-1.5 font-mono text-[11px] text-slate-600 dark:bg-slate-900 dark:text-slate-300"
+          title={
+            error
+              ? "Backend không trả /api/devices/{id}/live-status — vấn đề ở portal, không phải kit"
+              : live?.reachable
+                ? "Backend ping SSH thành công"
+                : "Backend ping SSH timeout — kit có thể đang đơ"
+          }
+        >
           <span className="inline-flex items-center gap-1.5">
             <Radio
               className={`h-3 w-3 ${
-                live?.reachable
-                  ? "text-emerald-500"
-                  : "text-rose-500"
+                error
+                  ? "text-amber-500"
+                  : live?.reachable
+                    ? "text-emerald-500"
+                    : "text-rose-500"
               }`}
             />
             ssh {device.name}
           </span>
           <span className="text-slate-400">
             {error
-              ? "err"
+              ? "API lỗi"
               : live?.reachable
                 ? `${live.latency_ms?.toFixed(0) ?? "?"}ms · port ${live.ssh_port}`
                 : live === null
                   ? "checking..."
-                  : "timeout"}
+                  : "kit không phản hồi"}
           </span>
         </div>
 
@@ -511,14 +522,36 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
           )}
 
           {state === "offline" && (
-            <button
-              type="button"
-              disabled
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
-            >
-              <WifiOff className="h-4 w-4" />
-              Không kết nối được
-            </button>
+            <>
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              >
+                <WifiOff className="h-4 w-4" />
+                Kit không phản hồi
+              </button>
+              {/* User vẫn cần báo reset khi kit đơ — backend tự lọc quyền
+                  qua reset-request access check. Auto-approve nếu là owner. */}
+              <button
+                type="button"
+                onClick={resetPlug}
+                disabled={resetting}
+                title={
+                  isOwner
+                    ? "Bạn đang có booking active — auto-approve sau khi gửi"
+                    : "GV/admin sẽ duyệt rồi power-cycle kit"
+                }
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+              >
+                {resetting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Power className="h-4 w-4" />
+                )}
+                Yêu cầu reset kit đơ
+              </button>
+            </>
           )}
 
           {state === "maintenance" && (
