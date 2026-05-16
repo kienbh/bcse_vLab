@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Cog, Cpu, Inbox, Loader2, RefreshCw, Zap } from "lucide-react";
+import { Cog, Cpu, Inbox, Loader2, LogIn, RefreshCw, Zap } from "lucide-react";
 
-import { AuthGate } from "@/components/AuthGate";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
+import { useUser } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -49,11 +49,92 @@ const FAMILY_META: Record<DeviceFamily, {
 
 export function FamilyDashboard({ family }: { family: DeviceFamily }) {
   const meta = FAMILY_META[family];
+  const { user, loading } = useUser();
+
+  // Public preview when unauth: show family meta + login CTA instead of
+  // silently redirecting (so the page doesn't look broken when a guest clicks
+  // a feature card on the landing page).
+  if (!loading && !user) {
+    return <FamilyPreview family={family} meta={meta} />;
+  }
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-12">
+        <div className="surface h-32 animate-pulse" />
+      </div>
+    );
+  }
+  // Auth user with must_change_password is still routed by AuthGate via the
+  // change-password redirect — wrap children to enforce that.
+  if (user!.must_change_password) {
+    return <ChangePasswordRedirect family={family} />;
+  }
+  return <FamilyInner family={family} meta={meta} />;
+}
+
+function FamilyPreview({
+  family,
+  meta,
+}: {
+  family: DeviceFamily;
+  meta: (typeof FAMILY_META)[DeviceFamily];
+}) {
+  const next = `/devices/${family}`;
   return (
-    <AuthGate>
-      <FamilyInner family={family} meta={meta} />
-    </AuthGate>
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex items-center gap-4">
+          <div
+            className={`grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br ${meta.gradient} text-white shadow-md`}
+          >
+            {meta.icon}
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">{meta.title}</h1>
+            <p className="max-w-xl text-sm text-slate-600 dark:text-slate-400">
+              {meta.subtitle}
+            </p>
+          </div>
+        </div>
+        <FamilyTabs current={family} />
+      </header>
+
+      <div className="surface flex flex-col items-center gap-4 p-12 text-center">
+        <div
+          className={`grid h-16 w-16 place-items-center rounded-2xl bg-gradient-to-br ${meta.gradient} text-white shadow-md`}
+        >
+          <LogIn className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold">Cần đăng nhập để xem kit</h2>
+          <p className="mt-1 max-w-md text-sm text-slate-600 dark:text-slate-400">
+            Danh sách thiết bị, trạng thái live, và đặt lịch chỉ hiển thị cho
+            sinh viên + giảng viên đã có tài khoản VJU Lab Portal.
+          </p>
+        </div>
+        <Link
+          href={`/login?next=${encodeURIComponent(next)}`}
+          className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-vju-500 to-vju-700 px-6 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg"
+        >
+          <LogIn className="h-4 w-4" />
+          Đăng nhập
+        </Link>
+        <p className="text-xs text-slate-400">
+          Chưa có tài khoản? Liên hệ giảng viên hoặc admin để được cấp.
+        </p>
+      </div>
+    </div>
   );
+}
+
+function ChangePasswordRedirect({ family }: { family: DeviceFamily }) {
+  // Re-use AuthGate's pattern: client-side redirect to /change-password.
+  if (typeof window !== "undefined") {
+    window.location.replace(
+      `/change-password?next=${encodeURIComponent(`/devices/${family}`)}`,
+    );
+  }
+  return null;
 }
 
 function FamilyInner({
