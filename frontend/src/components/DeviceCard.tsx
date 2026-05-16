@@ -385,7 +385,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             <button
               type="button"
               onClick={() => onBook(device)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
             >
               <Sparkles className="h-4 w-4" />
               ĐẶT SLOT NGAY
