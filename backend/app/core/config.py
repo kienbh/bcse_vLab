@@ -58,7 +58,10 @@ class Settings(BaseSettings):
     DEVICE_KEY_ENCRYPTION_KEY: SecretStr = SecretStr("dev_only_32_chars_aes_xxxxxxxxxx")
 
     # SV14 itself — backend SSHs here to create/delete dynamic jump users
-    SV14_HOST: str = "192.168.2.114"
+    # Backend container reaches SV14 host via Docker host-gateway (set in
+    # docker-compose via extra_hosts). In dev / outside Docker, override to
+    # the actual LAN IP `192.168.2.114`.
+    SV14_HOST: str = "host.docker.internal"
     SV14_SSH_PORT: int = 22
     SV14_SSH_USER: str = "student"
     # Public-facing endpoint shown to users in the SSH command

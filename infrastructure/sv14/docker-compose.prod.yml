@@ -56,6 +56,10 @@ services:
     mem_limit: 512m
     mem_reservation: 256m
     mem_swappiness: 10
+    # host-gateway lets the container reach the SV14 host's own sshd
+    # (needed for the M5.7 jump-user create/delete via SSH ProxyJump).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env.prod
     environment:
@@ -84,6 +88,8 @@ services:
     mem_limit: 384m
     mem_reservation: 192m
     mem_swappiness: 10
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: ["rq", "worker", "--with-scheduler", "--url", "redis://:${REDIS_PASSWORD}@redis:6379/0", "default"]
     healthcheck:
       test: ["CMD", "python", "-c", "import os, redis; redis.from_url(os.environ['REDIS_URL']).ping()"]

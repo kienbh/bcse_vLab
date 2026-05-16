@@ -61,9 +61,16 @@ Match Group vjujump
 EOF
 
 # 4. Validate + reload sshd ------------------------------------------------
-log "4/4 — sshd -t && systemctl reload sshd"
+# Ubuntu 24.04 calls the unit `ssh.service` (older releases used `sshd`).
+log "4/4 — sshd -t && reload ssh"
 sshd -t
-systemctl reload sshd
+if systemctl reload ssh 2>/dev/null; then
+    log "  reloaded ssh.service"
+elif systemctl reload sshd 2>/dev/null; then
+    log "  reloaded sshd.service"
+else
+    log "  WARNING — couldn't reload via systemctl; check the unit name manually"
+fi
 
 log "DONE."
 log ""
