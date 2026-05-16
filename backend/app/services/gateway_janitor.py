@@ -82,11 +82,29 @@ async def _write_banner(session: GatewaySession, minutes_left: int) -> bool:
 
 
 async def _kill_pid(session: GatewaySession) -> bool:
-    if not session.active_pid:
-        return True  # nothing to kill
-    pid = int(session.active_pid)
-    # SIGHUP gives ssh-the-program a chance to clean up; SIGKILL as backstop.
-    cmd = f"kill -HUP {pid} 2>/dev/null; sleep 1; kill -KILL {pid} 2>/dev/null; true"
+    """Drop the live SSH connection on the jump host.
+
+    Preferred path: `active_pid` was recorded by session-start → kill that
+    specific PID with SIGHUP then SIGKILL backstop.
+
+    Fallback (active_pid NULL — session-start curl failed / timed out): use
+    pkill -u vlab to reap any ssh-to-this-kit process the vlab user owns.
+    This is a wider net but vlab can only own ssh processes spawned by
+    ForceCommand, so blast radius is bounded.
+    """
+    if session.active_pid:
+        pid = int(session.active_pid)
+        cmd = f"kill -HUP {pid} 2>/dev/null; sleep 1; kill -KILL {pid} 2>/dev/null; true"
+    else:
+        target = shlex.quote(str(session.target_host))
+        # pkill -f matches the full command line of /usr/bin/ssh, which contains
+        # the kit IP as the last positional arg.
+        cmd = (
+            f"pkill -HUP -u vlab -f {target} 2>/dev/null; "
+            f"sleep 1; "
+            f"pkill -KILL -u vlab -f {target} 2>/dev/null; "
+            f"true"
+        )
     return await _ssh_run_on_jump(cmd)
 
 

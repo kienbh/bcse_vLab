@@ -153,9 +153,11 @@ TARGET_USER=$(echo "$RESP" | jq -r '.target_user')
 SESSION_ID=$(echo "$RESP" | jq -r '.session_id')
 
 # Notify backend that the actual shell session is starting — backend uses
-# this to record PID + pty so the janitor can kill on expiry.
+# this to record PID + pty so the janitor can kill on expiry. Bumped from
+# 3s to 10s to match /auth (the curl was timing out under bcrypt load and
+# leaving active_pid NULL, which made janitor revoke unable to kill).
 PTY="$(tty 2>/dev/null || echo '')"
-curl -sS --max-time 3 \
+curl -sS --max-time 10 --connect-timeout 4 \
     -H 'Content-Type: application/json' \
     -H "X-Gateway-Secret: ${GATEWAY_SHARED_SECRET}" \
     -d "$(jq -nc --arg s "$SESSION_ID" --argjson p "$$" --arg pty "$PTY" --arg ip "$CLIENT_IP" \
@@ -164,7 +166,7 @@ curl -sS --max-time 3 \
 
 # Trap exit to flush session-end
 cleanup() {
-    curl -sS --max-time 3 \
+    curl -sS --max-time 10 --connect-timeout 4 \
         -H 'Content-Type: application/json' \
         -H "X-Gateway-Secret: ${GATEWAY_SHARED_SECRET}" \
         -d "$(jq -nc --arg s "$SESSION_ID" '{session_id:$s, bytes_in:0, bytes_out:0}')" \
