@@ -284,6 +284,8 @@ export interface SessionResult {
   ssh_host: string;
   ssh_port: number;
   private_key: string;
+  password?: string | null;
+  password_set?: boolean;
   wetty_url: string;
   fingerprint: string;
   mocked: boolean;
@@ -294,8 +296,9 @@ export interface SessionLaunchModalProps {
   onClose: () => void;
 }
 
-function SshCommandBlock({ user, host, port }: { user: string; host: string; port: number }) {
-  const cmd = `ssh -i ~/.ssh/vju-session -p ${port} ${user}@${host}`;
+/** Password-based ssh command: simple `ssh user@host` (no -i flag). */
+function SshCommandBlockSimple({ user, host, port }: { user: string; host: string; port: number }) {
+  const cmd = port === 22 ? `ssh ${user}@${host}` : `ssh -p ${port} ${user}@${host}`;
   const [copied, setCopied] = useState(false);
   const onCopy = async () => {
     try {
@@ -306,11 +309,44 @@ function SshCommandBlock({ user, host, port }: { user: string; host: string; por
   };
   return (
     <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-slate-700 bg-slate-900">
-      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-xs text-emerald-300">{cmd}</pre>
+      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-sm text-emerald-300">{cmd}</pre>
       <button
         type="button"
         onClick={onCopy}
-        className="border-l border-slate-700 bg-slate-800 px-3 text-xs font-semibold text-slate-200 hover:bg-slate-700"
+        className="border-l border-slate-700 bg-slate-800 px-4 text-sm font-semibold text-slate-200 hover:bg-slate-700"
+      >
+        {copied ? "✓ Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function PasswordBlock({ password }: { password: string }) {
+  const [copied, setCopied] = useState(false);
+  const [visible, setVisible] = useState(true);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch { /* ignore */ }
+  };
+  return (
+    <div className="flex items-stretch gap-0 overflow-hidden rounded-md border border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30">
+      <pre className="flex-1 overflow-x-auto px-3 py-2 font-mono text-sm font-bold text-amber-900 dark:text-amber-200">
+        {visible ? password : "•".repeat(password.length)}
+      </pre>
+      <button
+        type="button"
+        onClick={() => setVisible((v) => !v)}
+        className="border-l border-amber-400 bg-amber-100 px-3 text-xs font-semibold text-amber-900 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60"
+      >
+        {visible ? "Hide" : "Show"}
+      </button>
+      <button
+        type="button"
+        onClick={onCopy}
+        className="border-l border-amber-400 bg-amber-200 px-4 text-sm font-semibold text-amber-900 hover:bg-amber-300 dark:border-amber-700 dark:bg-amber-800/60 dark:text-amber-100 dark:hover:bg-amber-700/60"
       >
         {copied ? "✓ Copied" : "Copy"}
       </button>
@@ -359,70 +395,64 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
         </header>
 
         <div className="space-y-4 p-5">
-          {/* Primary: SSH command + key for native client (the workflow thầy chose) */}
+          {/* Primary UX (MobaXterm / PuTTY / plain ssh): paste command + paste password */}
           <div className="space-y-3">
             <div>
               <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                Bước 1 · Lệnh SSH (copy vào terminal của bạn)
+                Bước 1 · Lệnh SSH (copy & paste vào terminal / MobaXterm)
               </p>
-              <SshCommandBlock
+              <SshCommandBlockSimple
                 user={session.ssh_user}
                 host={session.ssh_host}
                 port={session.ssh_port}
               />
             </div>
 
-            <div>
-              <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
-                Bước 2 · Private key (chỉ hiện 1 lần — lưu lại + chmod 600)
-              </p>
-              <button
-                type="button"
-                onClick={copyKey}
-                className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-emerald-500 to-teal-600 px-4 py-2 text-sm font-bold text-white shadow hover:shadow-lg"
-              >
-                <KeyRound className="h-4 w-4" />
-                {copied ? "✓ Đã copy private key" : "Copy private key vào clipboard"}
-              </button>
-              <textarea
-                readOnly
-                value={session.private_key}
-                rows={9}
-                onFocus={(e) => e.currentTarget.select()}
-                className="block w-full rounded-md border border-slate-300 bg-slate-900 px-3 py-2 font-mono text-[10px] text-emerald-300 dark:border-slate-700"
-              />
-            </div>
+            {session.password && (
+              <div>
+                <p className="mb-1 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                  Bước 2 · Password (khi terminal prompt `password:`)
+                </p>
+                <PasswordBlock password={session.password} />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Password 1-shot, valid trong khung giờ slot. Hết giờ slot,
+                  gateway tự revoke → password không còn dùng được.
+                </p>
+              </div>
+            )}
 
-            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-[11px] text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-              <p className="font-semibold mb-2">📋 Hướng dẫn nhanh — chọn theo OS:</p>
+            <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30">
+              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <KeyRound className="h-3.5 w-3.5" />
+                Không thích password? Dùng SSH key file thay
+              </summary>
+              <div className="space-y-2 px-3 py-2 pt-0">
+                <button
+                  type="button"
+                  onClick={copyKey}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                  {copied ? "✓ Đã copy private key" : "Copy private key"}
+                </button>
+                <textarea
+                  readOnly
+                  value={session.private_key}
+                  rows={7}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="block w-full rounded-md border border-slate-300 bg-slate-900 px-3 py-2 font-mono text-[10px] text-emerald-300 dark:border-slate-700"
+                />
+              </div>
+            </details>
 
-              <p className="mb-1 mt-2 text-[11px] font-bold text-slate-700 dark:text-slate-200">
-                🪟 Windows PowerShell (sau khi đã Copy key ở Bước 2):
-              </p>
-              <pre className="overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300">
-{`mkdir $env:USERPROFILE\\.ssh -ErrorAction SilentlyContinue
-$key = Get-Clipboard -Raw
-[System.IO.File]::WriteAllText("$env:USERPROFILE\\.ssh\\vju-session", $key)
-icacls "$env:USERPROFILE\\.ssh\\vju-session" /inheritance:r /grant:r "$\{env:USERNAME\}:F"
-ssh -i "$env:USERPROFILE\\.ssh\\vju-session" ${session.ssh_user}@${session.ssh_host}`}
-              </pre>
-
-              <p className="mb-1 mt-3 text-[11px] font-bold text-slate-700 dark:text-slate-200">
-                🐧 Linux / 🍎 Mac (terminal bash/zsh):
-              </p>
-              <pre className="overflow-x-auto rounded bg-slate-900 px-2 py-1 font-mono text-[10px] text-emerald-300">
-{`mkdir -p ~/.ssh
-cat > ~/.ssh/vju-session <<'EOF'
-<paste private key vào đây>
-EOF
-chmod 600 ~/.ssh/vju-session
-ssh -i ~/.ssh/vju-session -p ${session.ssh_port} ${session.ssh_user}@${session.ssh_host}`}
-              </pre>
-
-              <p className="mt-2 text-[10px] text-slate-500">
-                ⚠ Hết giờ slot, gateway tự revoke key → SSH session disconnected.
-                Key chỉ valid trong khung giờ booking của bạn.
-              </p>
+            <div className="rounded-md border border-vju-200 bg-vju-50 p-3 text-[12px] text-slate-700 dark:border-vju-900/40 dark:bg-vju-950/30 dark:text-slate-200">
+              <p className="font-semibold">👉 Cách dùng:</p>
+              <ol className="ml-5 list-decimal space-y-0.5 text-[11px]">
+                <li>Copy lệnh ở <b>Bước 1</b> → paste vào MobaXterm / PowerShell / Terminal.</li>
+                <li>Khi terminal hỏi <code className="rounded bg-slate-200 px-1 dark:bg-slate-800">password:</code> → paste password ở <b>Bước 2</b>.</li>
+                <li>Nếu hỏi <i>continue connecting? (yes/no)</i> → gõ <code>yes</code>.</li>
+                <li>Vào tới prompt <code className="font-mono">ubuntu@kria:~$</code> → bắt đầu làm việc.</li>
+              </ol>
             </div>
 
             <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/30">

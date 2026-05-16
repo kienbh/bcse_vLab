@@ -112,6 +112,18 @@ async def provision(
         expires_at_iso=booking.end_time.isoformat(),
     )
 
+    # Set a one-shot password on the KIT user — UX simpler than key file:
+    # user copies `ssh user@host` + password into MobaXterm/PuTTY/terminal.
+    # This is independent of the ephemeral key flow; both auth paths work.
+    session_password = ssh_manager.generate_session_password(12)
+    password_set_ok = await ssh_manager.set_user_password(
+        device_internal_ip=str(device.internal_ip),
+        device_ssh_port=device.ssh_port,
+        device_ssh_user=device.ssh_user,
+        backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
+        new_password=session_password,
+    )
+
     sess = DBSession(
         booking_id=booking.id,
         ssh_pubkey=result.public_key_line,
@@ -145,6 +157,11 @@ async def provision(
         "ssh_port": device.ssh_port,
         "fingerprint": result.fingerprint,
         "private_key": result.private_key_pem,
+        # Password-based auth: primary UX path for non-technical users
+        # (MobaXterm, PuTTY, plain `ssh` + paste password). Falls back gracefully
+        # if password_set_ok=false — frontend won't show the password block.
+        "password": session_password if password_set_ok else None,
+        "password_set": password_set_ok,
         # Wetty 2.x path syntax: /term/ssh/<user>@<host>:<port>. The wetty
         # container has portal_admin_ed25519 mounted at /keys/ and authenticates
         # to every KIT with it (publickey only, --allow-remote-hosts).

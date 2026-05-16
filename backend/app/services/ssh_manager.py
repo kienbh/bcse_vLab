@@ -21,12 +21,31 @@ import asyncio
 import base64
 import hashlib
 import os
+import secrets
 import shlex
+import string
 from dataclasses import dataclass
 
 import asyncssh
 
 from app.core.config import get_settings
+
+
+# Pilot: the lab KIT user `ubuntu` has the same password on every kit because
+# they were imaged from the same SD card. We use it to drive `sudo -S` for
+# `chpasswd`. In a multi-tenant prod world the sudoers file should have
+# `ubuntu ALL=NOPASSWD: /usr/sbin/chpasswd` and we'd skip the env entirely.
+_KIT_SUDO_PASS_ENV = "KIT_SUDO_PASS"
+
+
+def _kit_sudo_pass() -> str | None:
+    return os.environ.get(_KIT_SUDO_PASS_ENV) or None
+
+
+def generate_session_password(length: int = 12) -> str:
+    """Random alphanumeric password — easy to type/paste, no shell metachars."""
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 @dataclass
@@ -114,6 +133,66 @@ async def provision_session(
         fingerprint=fp,
         expires_tag=session_tag,
         mocked=False,
+    )
+
+
+async def set_user_password(
+    *,
+    device_internal_ip: str,
+    device_ssh_port: int,
+    device_ssh_user: str,
+    backend_admin_key_path: str,
+    new_password: str,
+) -> bool:
+    """SSH to the KIT with the admin key and `chpasswd` the target user's password.
+
+    Uses sudo with `KIT_SUDO_PASS` env (pilot-mode) — falls back to expecting
+    NOPASSWD sudo if env is unset. Returns True on success.
+    """
+    if not os.path.exists(backend_admin_key_path):
+        return False
+    sudo_pass = _kit_sudo_pass()
+    payload = f"{device_ssh_user}:{new_password}"
+    if sudo_pass:
+        # sudo -S reads password from stdin
+        cmd = (
+            f"echo {shlex.quote(sudo_pass)} | sudo -S sh -c "
+            f"{shlex.quote(f'echo {shlex.quote(payload)} | chpasswd')}"
+        )
+    else:
+        cmd = f"sudo -n sh -c {shlex.quote(f'echo {shlex.quote(payload)} | chpasswd')}"
+    try:
+        async with asyncssh.connect(
+            device_internal_ip,
+            port=device_ssh_port,
+            username=device_ssh_user,
+            client_keys=[backend_admin_key_path],
+            known_hosts=None,
+        ) as conn:
+            r = await conn.run(cmd, check=False)
+            # chpasswd outputs nothing on success; non-zero exit is failure
+            return r.exit_status == 0
+    except (asyncssh.Error, OSError):
+        return False
+
+
+async def lock_user_password(
+    *,
+    device_internal_ip: str,
+    device_ssh_port: int,
+    device_ssh_user: str,
+    backend_admin_key_path: str,
+) -> bool:
+    """Set the user's password to a random unknown value — effectively locks
+    password auth without disabling the account (so portal_admin key access
+    still works for future sessions / sweeper cleanup).
+    """
+    return await set_user_password(
+        device_internal_ip=device_internal_ip,
+        device_ssh_port=device_ssh_port,
+        device_ssh_user=device_ssh_user,
+        backend_admin_key_path=backend_admin_key_path,
+        new_password=generate_session_password(32),
     )
 
 

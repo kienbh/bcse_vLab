@@ -83,6 +83,17 @@ async def revoke_expired_sessions() -> int:
                         f"sweep: revoke ssh on {device.name} failed (will mark "
                         f"session ended anyway): {e}"
                     )
+            # Lock password too — set to a random unknown value so the user
+            # who copied it from the modal can't log back in after slot expiry.
+            try:
+                await ssh_manager.lock_user_password(
+                    device_internal_ip=str(device.internal_ip),
+                    device_ssh_port=device.ssh_port,
+                    device_ssh_user=device.ssh_user,
+                    backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
+                )
+            except Exception as e:
+                logger.warning(f"sweep: lock password on {device.name} failed: {e}")
 
             sess.status = SessionStatus.COMPLETED
             sess.ended_at = now
