@@ -198,37 +198,68 @@ def cf_ensure_dns_cname() -> None:
     log(f"  DNS OK — {fqdn} → {target}")
 
 
-def cf_ensure_ssh_dns() -> None:
-    """Ensure ssh.bcse-vju.com CNAME → <tunnel>.cfargotunnel.com (proxied).
+def cf_ensure_ssh_dns(*, pve_public_ip: str = "123.16.53.250") -> None:
+    """Ensure ssh.bcse-vju.com A → PVE public IP (proxied=OFF).
 
-    Used by M5.7 SSH ProxyJump pattern — Cloudflare Tunnel TCP service
-    exposes SV14:22 publicly without needing router-level port forward.
+    Updated 2026-05-16: pivoted from CF Tunnel TCP (CNAME proxied) to a
+    direct A record because PVE port 2223 is already publicly reachable
+    via router DNAT, and direct A avoids the cloudflared client install
+    on every user machine.
     """
     fqdn = "ssh.bcse-vju.com"
     subdomain = "ssh"
-    target = f"{CF_TUNNEL_ID}.cfargotunnel.com"
-    res = cf_get(f"/zones/{CF_ZONE_ID}/dns_records?type=CNAME&name={fqdn}")
-    body = {"type": "CNAME", "name": subdomain, "content": target,
-            "ttl": 1, "proxied": True,
-            "comment": "VJU Hardware Lab Portal — SSH gateway (M5.7 ProxyJump)"}
-    if res.get("result"):
-        rec = res["result"][0]
-        log(f"CF DNS — updating {fqdn} (id={rec['id']})")
-        out = cf_send("PUT", f"/zones/{CF_ZONE_ID}/dns_records/{rec['id']}", body)
-    else:
-        log(f"CF DNS — creating {fqdn}")
-        out = cf_send("POST", f"/zones/{CF_ZONE_ID}/dns_records", body)
+    # Drop any existing record (CNAME or A) and replace with A direct.
+    for rtype in ("CNAME", "A"):
+        res = cf_get(f"/zones/{CF_ZONE_ID}/dns_records?type={rtype}&name={fqdn}")
+        for rec in res.get("result", []):
+            log(f"CF DNS — deleting old {rtype} record {fqdn} id={rec['id']}")
+            cf_send("DELETE", f"/zones/{CF_ZONE_ID}/dns_records/{rec['id']}", {})
+    body = {"type": "A", "name": subdomain, "content": pve_public_ip,
+            "ttl": 1, "proxied": False,
+            "comment": "VJU Hardware Lab Portal — SSH ProxyJump gateway (PVE direct)"}
+    out = cf_send("POST", f"/zones/{CF_ZONE_ID}/dns_records", body)
     if not out.get("success"):
-        raise RuntimeError(f"CF DNS (ssh) failed: {json.dumps(out, indent=2)}")
-    log(f"  DNS OK — {fqdn} → {target}")
+        raise RuntimeError(f"CF DNS (ssh A) failed: {json.dumps(out, indent=2)}")
+    log(f"  DNS OK — {fqdn} A → {pve_public_ip} (proxied=OFF)")
+
+
+def cf_remove_ssh_tunnel_rule() -> None:
+    """Strip any leftover ssh.bcse-vju.com ingress from the tunnel config.
+
+    Switched from tunnel TCP to direct A record (cleaner UX), so this rule
+    must go to avoid double-routing.
+    """
+    log("CF Tunnel — removing leftover ssh.bcse-vju.com ingress (if any)")
+    cfg = cf_send(
+        "GET",
+        f"/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
+        {}, use_global_key=True,
+    )
+    if not cfg.get("success"):
+        return
+    config = cfg["result"]["config"] or {}
+    ingress = config.get("ingress", [])
+    filtered = [r for r in ingress if r.get("hostname") != "ssh.bcse-vju.com"]
+    if len(filtered) == len(ingress):
+        log("  no SSH ingress rule found — nothing to remove")
+        return
+    new_cfg = {"config": {**config, "ingress": filtered}}
+    out = cf_send(
+        "PUT",
+        f"/accounts/{CF_ACCOUNT_ID}/cfd_tunnel/{CF_TUNNEL_ID}/configurations",
+        new_cfg, use_global_key=True,
+    )
+    if not out.get("success"):
+        log(f"  WARN: tunnel cleanup failed: {out}")
+    else:
+        log("  removed.")
 
 
 def cf_ensure_ssh_tunnel_rule() -> None:
-    """Add ingress rule ssh.bcse-vju.com → ssh://192.168.2.114:22 (SV14 sshd).
+    """LEGACY (M5.7 pre-pivot) — kept for back-compat but no longer wired.
 
-    `cloudflared` on PVE proxies the TCP raw stream. End users wrap their
-    SSH client with `cloudflared access ssh --hostname ssh.bcse-vju.com`
-    (Linux/Mac binary or Windows .exe).
+    Was: add ingress rule ssh.bcse-vju.com → ssh://192.168.2.114:22 for the
+    cloudflared TCP tunnel approach. Replaced by direct DNS A record to PVE.
     """
     log("CF Tunnel — fetching current ingress for SSH rule")
     cfg = cf_send(
@@ -536,9 +567,9 @@ def main() -> int:
 
     if args.setup_ssh_tunnel:
         cf_ensure_ssh_dns()
-        cf_ensure_ssh_tunnel_rule()
-        log("SSH tunnel done. Test from your machine:")
-        log("  cloudflared access ssh --hostname ssh.bcse-vju.com")
+        cf_remove_ssh_tunnel_rule()
+        log("SSH gateway done. Test from your machine:")
+        log("  ssh -i vju-session.key -J sess-xxx@ssh.bcse-vju.com:2223 ubuntu@192.168.2.93")
         return 0
 
     if not args.skip_cf:

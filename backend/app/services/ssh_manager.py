@@ -205,32 +205,29 @@ async def create_jump_user(
     session_tag: str,
     pubkey_line: str,
 ) -> bool:
-    """Create a dynamic SSH jump user on SV14 + install the user's pubkey.
+    """Create a dynamic SSH jump user on the gateway + install pubkey.
 
-    The SV14 host must already have `setup-jump-host.sh` applied — that
-    installs the constrained sudoers rules + sshd Match-Group block. This
-    function relies on those constraints; without them sudo will reject
-    or `Match Group vjujump` won't restrict to PermitOpen.
+    The gateway host (Proxmox PVE in production) must already have the
+    vjujump group + sshd Match-Group block from `setup-jump-host-pve.sh`.
 
-    On success the user can `ssh -J <session_tag>@sv14_public:port host:22`
+    On success the user can `ssh -J <session_tag>@gateway:port host:22`
     to any KIT in the Match Group's PermitOpen whitelist.
-
-    Returns True only when every step succeeded.
     """
     if not os.path.exists(backend_admin_key_path):
         return False
-    # session_tag must match `sess-<alnum>` because the sudoers rule
-    # restricts the username pattern; reject anything else early.
     if not session_tag.startswith("sess-") or len(session_tag) > 30:
         return False
 
+    # PVE host doesn't ship sudo by default — we SSH as root, so skip the
+    # sudo prefix. Keep it when SSH'ing as a non-root user (legacy SV14 path).
+    sudo = "" if sv14_ssh_user == "root" else "sudo "
     home = f"/home/{session_tag}"
     cmds = [
-        f"sudo /usr/sbin/useradd -m -s /usr/sbin/nologin -G vjujump {session_tag}",
-        f"sudo /usr/bin/install -d -m 700 -o {session_tag} -g {session_tag} {home}/.ssh",
-        f"echo {shlex.quote(pubkey_line)} | sudo /usr/bin/tee {home}/.ssh/authorized_keys > /dev/null",
-        f"sudo /usr/bin/chmod 600 {home}/.ssh/authorized_keys",
-        f"sudo /usr/bin/chown {session_tag}:{session_tag} {home}/.ssh/authorized_keys",
+        f"{sudo}/usr/sbin/useradd -m -s /usr/sbin/nologin -G vjujump {session_tag}",
+        f"{sudo}/usr/bin/install -d -m 700 -o {session_tag} -g {session_tag} {home}/.ssh",
+        f"echo {shlex.quote(pubkey_line)} | {sudo}/usr/bin/tee {home}/.ssh/authorized_keys > /dev/null",
+        f"{sudo}/usr/bin/chmod 600 {home}/.ssh/authorized_keys",
+        f"{sudo}/usr/bin/chown {session_tag}:{session_tag} {home}/.ssh/authorized_keys",
     ]
     try:
         async with asyncssh.connect(
@@ -243,9 +240,8 @@ async def create_jump_user(
             for c in cmds:
                 r = await conn.run(c, check=False)
                 if r.exit_status != 0:
-                    # On failure, attempt to roll back so we don't leak users.
                     await conn.run(
-                        f"sudo /usr/sbin/userdel -r {session_tag}", check=False
+                        f"{sudo}/usr/sbin/userdel -r {session_tag}", check=False
                     )
                     return False
         return True
@@ -261,15 +257,12 @@ async def delete_jump_user(
     backend_admin_key_path: str,
     session_tag: str,
 ) -> bool:
-    """Remove a jump user from SV14 — `userdel -r` drops home + keys atomically.
-
-    Idempotent: returns True if the user is gone (either we deleted it or
-    it didn't exist).
-    """
+    """Remove a jump user — `userdel -r` drops home + keys atomically."""
     if not os.path.exists(backend_admin_key_path):
         return False
     if not session_tag.startswith("sess-") or len(session_tag) > 30:
         return False
+    sudo = "" if sv14_ssh_user == "root" else "sudo "
     try:
         async with asyncssh.connect(
             sv14_host,
@@ -279,9 +272,8 @@ async def delete_jump_user(
             known_hosts=None,
         ) as conn:
             r = await conn.run(
-                f"sudo /usr/sbin/userdel -r {session_tag}", check=False
+                f"{sudo}/usr/sbin/userdel -r {session_tag}", check=False
             )
-            # `userdel` returns 6 if the user doesn't exist — that's fine.
             return r.exit_status in (0, 6)
     except (asyncssh.Error, OSError):
         return False
