@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Calendar, Cpu, Sparkles, Clock, ChevronRight, MessageSquare } from "lucide-react";
+import { Calendar, Cpu, Sparkles, Clock, ChevronRight, Activity } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
@@ -115,20 +115,20 @@ function DashboardInner() {
               <Cpu className="h-4 w-4 text-vju-500" />
               <L k="card.actions.book" />
             </Link>
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:border-vju-300 hover:bg-vju-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-vju-700 dark:hover:bg-slate-800"
+            <Link
+              href="/bookings"
+              className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:border-vju-300 hover:bg-vju-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-vju-700 dark:hover:bg-slate-800"
             >
-              <Sparkles className="h-4 w-4 text-accent-500" />
-              <L k="card.actions.special" />
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:border-vju-300 hover:bg-vju-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-vju-700 dark:hover:bg-slate-800"
+              <Calendar className="h-4 w-4 text-accent-500" />
+              {locale === "vi" ? "Lịch của tôi" : "My bookings"}
+            </Link>
+            <Link
+              href="/monitor"
+              className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm hover:border-vju-300 hover:bg-vju-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-vju-700 dark:hover:bg-slate-800"
             >
-              <MessageSquare className="h-4 w-4 text-emerald-500" />
-              <L k="card.actions.contact" />
-            </button>
+              <Activity className="h-4 w-4 text-emerald-500" />
+              {locale === "vi" ? "Giám sát thiết bị" : "Live monitor"}
+            </Link>
           </div>
         </section>
       </div>

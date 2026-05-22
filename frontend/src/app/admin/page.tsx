@@ -28,8 +28,8 @@ const TILES: readonly Tile[] = [
   },
   {
     href: "/admin/classes",
-    title: "Lớp học",
-    desc: "Tạo lớp, gán giảng viên, xem enroll danh sách + assignment",
+    title: "Lớp học & sinh viên",
+    desc: "Quản lý danh sách sinh viên từng lớp — thêm/xoá sinh viên",
     icon: <ListChecks className="h-6 w-6" />,
     color: "from-emerald-500 to-emerald-700",
     roles: ["admin", "lecturer"],

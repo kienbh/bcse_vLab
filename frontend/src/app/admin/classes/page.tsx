@@ -1,188 +1,243 @@
 "use client";
 
-import Link from "next/link";
-import { ListChecks, Plus, Upload } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ChevronDown, ChevronRight, ListChecks, UserPlus, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
-type Class = {
+type Cls = { id: string; code: string; name: string; semester: string };
+type Student = { id: string; email: string; full_name: string; student_code: string | null };
+type Enrollment = {
   id: string;
-  code: string;
-  name: string;
-  semester: string;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
+  user_id: string;
+  email: string;
+  full_name: string;
+  student_code: string | null;
 };
 
+const j = (r: Response) => (r.ok ? r.json() : Promise.reject(r));
+async function errText(r: Response) {
+  const e = await r.json().catch(() => ({}));
+  return e?.detail?.code ?? `HTTP ${r.status}`;
+}
+
+// ----------------------------------------------------- per-class enrollment
+function ManageStudents({ classId }: { classId: string }) {
+  const [enrolled, setEnrolled] = useState<Enrollment[]>([]);
+  const [roster, setRoster] = useState<Student[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [showAdd, setShowAdd] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      fetch(`${API}/classes/${classId}/enrollments`, { credentials: "include" }).then(j),
+      fetch(`${API}/teacher/students`, { credentials: "include" }).then(j),
+    ])
+      .then(([e, s]) => {
+        setEnrolled(e);
+        setRoster(s);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [classId]);
+  useEffect(load, [load]);
+
+  const enrolledIds = useMemo(() => new Set(enrolled.map((e) => e.user_id)), [enrolled]);
+  const available = roster.filter((s) => !enrolledIds.has(s.id));
+
+  const toggle = (id: string) =>
+    setPicked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const enroll = async () => {
+    if (picked.size === 0) return;
+    const r = await fetch(`${API}/classes/${classId}/enroll`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_ids: [...picked] }),
+    });
+    if (r.ok) {
+      setPicked(new Set());
+      setShowAdd(false);
+      load();
+    } else alert(`Thêm thất bại: ${await errText(r)}`);
+  };
+
+  const unenroll = async (userId: string) => {
+    if (!confirm("Xoá sinh viên này khỏi lớp?")) return;
+    const r = await fetch(`${API}/classes/${classId}/enroll/${userId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (r.ok) load();
+    else alert(`Xoá thất bại: ${await errText(r)}`);
+  };
+
+  if (loading) return <div className="h-16 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-slate-500">
+          {enrolled.length} sinh viên trong lớp
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowAdd((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-md bg-vju-500 px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          <UserPlus className="h-3 w-3" /> {showAdd ? "Đóng" : "Thêm sinh viên"}
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+          <p className="mb-2 text-xs font-semibold text-slate-500">
+            Chọn từ danh sách tài khoản sinh viên ({available.length} chưa trong lớp):
+          </p>
+          <div className="max-h-56 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
+            {available.length === 0 ? (
+              <p className="p-3 text-center text-xs text-slate-500">
+                Mọi sinh viên đã ở trong lớp.
+              </p>
+            ) : (
+              available.map((s) => (
+                <label
+                  key={s.id}
+                  className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-sm last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
+                >
+                  <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} />
+                  <span className="flex-1">
+                    {s.full_name}{" "}
+                    <span className="text-xs text-slate-500">{s.student_code ?? s.email}</span>
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={enroll}
+            disabled={picked.size === 0}
+            className="mt-2 rounded-md bg-vju-500 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            Thêm {picked.size} sinh viên vào lớp
+          </button>
+        </div>
+      )}
+
+      {enrolled.length === 0 ? (
+        <p className="text-xs text-slate-500">Lớp chưa có sinh viên.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+          {enrolled.map((e) => (
+            <li key={e.id} className="flex items-center justify-between px-3 py-1.5 text-sm">
+              <span>
+                {e.full_name}{" "}
+                <span className="text-xs text-slate-500">{e.student_code ?? e.email}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => unenroll(e.user_id)}
+                className="text-rose-500 hover:text-rose-700"
+                aria-label="Xoá khỏi lớp"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------- page
 function ClassesInner() {
   const { user } = useUser();
-  const [classes, setClasses] = useState<Class[]>([]);
+  const [classes, setClasses] = useState<Cls[]>([]);
   const [loading, setLoading] = useState(true);
-  const [show, setShow] = useState(false);
-  const [form, setForm] = useState({
-    code: "",
-    name: "",
-    semester: "2026-1",
-    starts_at: "",
-    ends_at: "",
-  });
+  const [expanded, setExpanded] = useState<string | null>(null);
 
-  const refresh = () => {
-    setLoading(true);
+  useEffect(() => {
     fetch(`${API}/classes`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((d) => {
-        setClasses(d);
-        setLoading(false);
-      });
-  };
-  useEffect(refresh, []);
+      .then(j)
+      .then(setClasses)
+      .catch(() => setClasses([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   if (!user || (user.role !== "admin" && user.role !== "lecturer")) {
     return <div className="mx-auto max-w-3xl p-10 surface">Cần lecturer/admin.</div>;
   }
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const payload = {
-      ...form,
-      starts_at: new Date(form.starts_at).toISOString(),
-      ends_at: new Date(form.ends_at).toISOString(),
-    };
-    const r = await fetch(`${API}/classes`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (r.ok) {
-      setShow(false);
-      setForm({ code: "", name: "", semester: "2026-1", starts_at: "", ends_at: "" });
-      refresh();
-    } else {
-      const e = await r.json().catch(() => ({}));
-      alert(`Tạo lớp thất bại: ${JSON.stringify(e)}`);
-    }
-  };
-
-  const uploadCsv = async (classId: string, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const r = await fetch(`${API}/classes/${classId}/enroll/csv`, {
-      method: "POST",
-      credentials: "include",
-      body: fd,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) {
-      alert(
-        `Enrolled: ${d.enrolled}, created users: ${d.created_users}, skipped: ${d.skipped?.length ?? 0}, errors: ${d.errors?.length ?? 0}`,
-      );
-    } else alert(`Lỗi: ${JSON.stringify(d)}`);
-  };
-
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex items-end justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Lớp học</h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400">{classes.length} lớp</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShow((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
-        >
-          <Plus className="h-4 w-4" />
-          {show ? "Đóng" : "Tạo lớp"}
-        </button>
-      </header>
-
-      {show && (
-        <form onSubmit={submit} className="surface grid gap-3 p-5 md:grid-cols-2">
-          <Input label="Mã lớp" value={form.code} onChange={(v) => setForm({ ...form, code: v })} placeholder="CIS3043-2026-01" />
-          <Input label="Học kỳ" value={form.semester} onChange={(v) => setForm({ ...form, semester: v })} />
-          <Input label="Tên lớp" value={form.name} onChange={(v) => setForm({ ...form, name: v })} className="md:col-span-2" />
-          <Input
-            label="Bắt đầu"
-            type="datetime-local"
-            value={form.starts_at}
-            onChange={(v) => setForm({ ...form, starts_at: v })}
-          />
-          <Input
-            label="Kết thúc"
-            type="datetime-local"
-            value={form.ends_at}
-            onChange={(v) => setForm({ ...form, ends_at: v })}
-          />
-          <button type="submit" className="md:col-span-2 rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white">
-            Tạo
-          </button>
-        </form>
-      )}
+    <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-10 md:px-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Lớp học &amp; sinh viên</h1>
+        <p className="text-sm text-slate-600 dark:text-slate-400">
+          {classes.length} lớp · bấm vào lớp để quản lý danh sách sinh viên.
+        </p>
+      </div>
 
       {loading ? (
         <div className="surface h-32 animate-pulse" />
       ) : classes.length === 0 ? (
         <div className="surface p-12 text-center">
           <ListChecks className="mx-auto h-10 w-10 text-slate-300" />
-          <p className="mt-3 text-sm text-slate-500">Chưa có lớp nào.</p>
+          <p className="mt-3 text-sm text-slate-500">
+            Chưa có lớp. Lớp được tạo qua seed/admin — liên hệ quản trị hệ thống.
+          </p>
         </div>
       ) : (
         <ul className="space-y-3">
-          {classes.map((c) => (
-            <li key={c.id} className="surface flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="font-mono text-xs uppercase text-slate-500">{c.code}</p>
-                <p className="text-base font-semibold">{c.name}</p>
-                <p className="text-xs text-slate-500">
-                  {c.semester} · {new Date(c.starts_at).toLocaleDateString("vi-VN")} →{" "}
-                  {new Date(c.ends_at).toLocaleDateString("vi-VN")}
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">
-                <Upload className="h-3 w-3" />
-                Enroll CSV
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && uploadCsv(c.id, e.target.files[0])}
-                />
-              </label>
-            </li>
-          ))}
+          {classes.map((c) => {
+            const open = expanded === c.id;
+            return (
+              <li key={c.id} className="surface overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(open ? null : c.id)}
+                  className="flex w-full items-center justify-between gap-3 p-5 text-left"
+                >
+                  <div>
+                    <p className="font-mono text-xs uppercase text-slate-500">{c.code}</p>
+                    <p className="text-base font-semibold">{c.name}</p>
+                    <p className="text-xs text-slate-500">{c.semester}</p>
+                  </div>
+                  {open ? (
+                    <ChevronDown className="h-5 w-5 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5 text-slate-400" />
+                  )}
+                </button>
+                {open && (
+                  <div className="border-t border-slate-200 p-5 dark:border-slate-800">
+                    <ManageStudents classId={c.id} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
       <p className="text-xs text-slate-500">
-        ⓘ CSV format: <code>email,full_name,student_code</code> — header optional. Email phải{" "}
-        <code>@st.vju.ac.vn</code> hoặc <code>@vju.ac.vn</code>; user mới sẽ tự tạo.
+        ⓘ Admin tạo tài khoản sinh viên ở trang <strong>Người dùng</strong>. Giảng viên chọn sinh
+        viên từ danh sách đó để thêm vào lớp, rồi cấp quyền thiết bị ở trang <strong>Quản lý
+        quyền</strong>.
       </p>
     </div>
-  );
-}
-
-function Input({
-  label, value, onChange, type = "text", placeholder, className = "",
-}: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string }) {
-  return (
-    <label className={`block text-xs font-semibold text-slate-600 dark:text-slate-400 ${className}`}>
-      {label}
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        required
-        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-vju-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-      />
-    </label>
   );
 }
 

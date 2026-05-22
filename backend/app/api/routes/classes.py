@@ -29,7 +29,7 @@ from app.schemas import (
     ClassDeviceAssignmentOut,
     ClassOut,
     EnrollmentBulkResult,
-    EnrollmentOut,
+    EnrollStudentsRequest,
     SpecialAccessCreate,
     SpecialAccessOut,
 )
@@ -116,17 +116,94 @@ async def _get_class_or_403(
 
 # -------- enrollment ----------------------------------------------------------
 
-@router.get("/{class_id}/enrollments", response_model=list[EnrollmentOut])
+@router.get("/{class_id}/enrollments")
 async def list_enrollments(
     class_id: UUID,
     user: User = Depends(require_lecturer),
     db: AsyncSession = Depends(get_db),
-) -> list[Enrollment]:
+) -> list[dict]:
+    """Active enrollments of a class, enriched with student name/email/code."""
     cls = await _get_class_or_403(class_id, user, db, write=True)
-    result = await db.execute(
-        select(Enrollment).where(Enrollment.class_id == cls.id, Enrollment.is_active.is_(True))
+    rows = (
+        await db.execute(
+            select(Enrollment, User)
+            .join(User, User.id == Enrollment.user_id)
+            .where(Enrollment.class_id == cls.id, Enrollment.is_active.is_(True))
+            .order_by(User.full_name)
+        )
+    ).all()
+    return [
+        {
+            "id": str(e.id),
+            "user_id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "student_code": u.student_code,
+        }
+        for e, u in rows
+    ]
+
+
+@router.post("/{class_id}/enroll", response_model=EnrollmentBulkResult)
+async def enroll_students(
+    class_id: UUID,
+    payload: EnrollStudentsRequest,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> EnrollmentBulkResult:
+    """Enroll already-existing student accounts into the class by id."""
+    cls = await _get_class_or_403(class_id, user, db, write=True)
+    enrolled = 0
+    skipped: list[str] = []
+    for uid in payload.user_ids:
+        u = (
+            await db.execute(select(User).where(User.id == uid))
+        ).scalar_one_or_none()
+        if u is None or u.role != UserRole.STUDENT:
+            skipped.append(str(uid))
+            continue
+        existing = (
+            await db.execute(
+                select(Enrollment).where(
+                    Enrollment.class_id == cls.id, Enrollment.user_id == uid
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            db.add(Enrollment(class_id=cls.id, user_id=uid, enrolled_by=user.id))
+            enrolled += 1
+        elif not existing.is_active:
+            existing.is_active = True
+            enrolled += 1
+        else:
+            skipped.append(u.email)
+    await db.commit()
+    return EnrollmentBulkResult(
+        enrolled=enrolled, created_users=0, skipped=skipped, errors=[]
     )
-    return list(result.scalars().all())
+
+
+@router.delete("/{class_id}/enroll/{user_id}", status_code=status.HTTP_200_OK)
+async def unenroll_student(
+    class_id: UUID,
+    user_id: UUID,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Remove a student from a class (soft — sets enrollment inactive)."""
+    cls = await _get_class_or_403(class_id, user, db, write=True)
+    e = (
+        await db.execute(
+            select(Enrollment).where(
+                Enrollment.class_id == cls.id, Enrollment.user_id == user_id
+            )
+        )
+    ).scalar_one_or_none()
+    if e is None or not e.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "NOT_ENROLLED"})
+    e.is_active = False
+    await db.commit()
+    return {"status": "unenrolled"}
 
 
 @router.post(

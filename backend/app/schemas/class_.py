@@ -56,6 +56,12 @@ class EnrollmentBulkResult(BaseModel):
     errors: list[dict] = Field(default_factory=list)
 
 
+class EnrollStudentsRequest(BaseModel):
+    """Enroll already-existing student accounts into a class by id."""
+
+    user_ids: list[UUID] = Field(..., min_length=1)
+
+
 class AssignmentCreate(BaseModel):
     device_id: UUID
     valid_from: datetime

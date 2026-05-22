@@ -8,6 +8,7 @@ from app.schemas.class_ import (
     ClassOut,
     EnrollmentBulkResult,
     EnrollmentOut,
+    EnrollStudentsRequest,
     SpecialAccessCreate,
     SpecialAccessOut,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "ClassOut",
     "EnrollmentOut",
     "EnrollmentBulkResult",
+    "EnrollStudentsRequest",
     "AssignmentCreate",
     "AssignmentUpdate",
     "ClassDeviceAssignmentOut",

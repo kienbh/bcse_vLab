@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Cpu, Calendar, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap } from "lucide-react";
+import { Cpu, Calendar, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap, Activity } from "lucide-react";
 
 import { UserMenu } from "@/components/UserMenu";
 import type { Locale, MessageKey } from "@/lib/i18n";
@@ -57,6 +57,7 @@ export function TopNav() {
     { href: "/devices/jetson", label: "Jetson", icon: <Cpu className="h-4 w-4" /> },
     { href: "/devices/rpi", label: "Pi", icon: <Zap className="h-4 w-4" /> },
     { href: "/bookings", label: tr("nav.bookings"), icon: <Calendar className="h-4 w-4" /> },
+    { href: "/monitor", label: locale === "vi" ? "Giám sát" : "Monitor", icon: <Activity className="h-4 w-4" /> },
     { href: "/dashboard", label: tr("nav.dashboard"), icon: <LayoutDashboard className="h-4 w-4" /> },
   ];
 

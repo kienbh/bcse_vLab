@@ -53,6 +53,7 @@ function BookingsInner() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"list" | "week">("list");
   const [weekOffset, setWeekOffset] = useState(0);
+  const [hideOld, setHideOld] = useState(false);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -128,6 +129,13 @@ function BookingsInner() {
     });
   }, [bookings, weekStart, weekEnd]);
 
+  // "Clear history" = hide finished/cancelled rows from the list (non-destructive).
+  const DONE_STATUSES = new Set(["completed", "cancelled", "no_show"]);
+  const listBookings = hideOld
+    ? bookings.filter((b) => !DONE_STATUSES.has(b.status))
+    : bookings;
+  const oldCount = bookings.filter((b) => DONE_STATUSES.has(b.status)).length;
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -140,6 +148,17 @@ function BookingsInner() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {oldCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setHideOld((v) => !v)}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+              {hideOld
+                ? locale === "vi" ? `Hiện lịch sử (${oldCount})` : `Show history (${oldCount})`
+                : locale === "vi" ? `Ẩn lịch sử (${oldCount})` : `Hide history (${oldCount})`}
+            </button>
+          )}
           <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
             <button
               type="button"
@@ -171,7 +190,7 @@ function BookingsInner() {
       {loading ? (
         <div className="surface h-40 animate-pulse" />
       ) : view === "list" ? (
-        bookings.length === 0 ? (
+        listBookings.length === 0 ? (
           <div className="surface flex flex-col items-center justify-center gap-3 p-12 text-center">
             <Inbox className="h-10 w-10 text-slate-300" />
             <h2 className="text-base font-semibold">
@@ -183,7 +202,7 @@ function BookingsInner() {
           </div>
         ) : (
           <ul className="space-y-3">
-            {bookings.map((b) => {
+            {listBookings.map((b) => {
               const d = devices.get(b.device_id);
               const now = Date.now();
               const start = new Date(b.start_time).getTime();
