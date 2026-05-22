@@ -58,6 +58,10 @@ coverage.xml
 # =================
 # Node / Next.js (frontend)
 # =================
+# NOTE: the Python `lib/` rule above also matches frontend/src/lib (Next.js
+# shared code — i18n + auth). Re-include it so portal source stays versioned.
+!frontend/src/lib/
+!frontend/src/lib/**
 node_modules/
 .next/
 out/
