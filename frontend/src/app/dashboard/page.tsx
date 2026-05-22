@@ -18,6 +18,7 @@ type Booking = {
   end_time: string;
   status: string;
   granted_via: string;
+  approved: boolean | null;
 };
 
 type Device = {
@@ -88,10 +89,19 @@ function DashboardInner() {
                   <div className="flex-1">
                     <p className="font-mono text-xs text-slate-700 dark:text-slate-300">{b.device_id}</p>
                     <p className="text-xs text-slate-500">
-                      {new Date(b.start_time).toLocaleString(locale === "vi" ? "vi-VN" : "en-GB")} ·{" "}
-                      <span className="italic">via {b.granted_via}</span>
+                      {new Date(b.start_time).toLocaleString(locale === "vi" ? "vi-VN" : "en-GB")}
                     </p>
                   </div>
+                  {b.status === "scheduled" && b.approved !== true && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                      {b.approved === false ? "Bị từ chối" : "Chờ duyệt"}
+                    </span>
+                  )}
+                  {b.status === "scheduled" && b.approved === true && (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      Đã duyệt
+                    </span>
+                  )}
                   <Countdown start={b.start_time} end={b.end_time} compact />
                   <ChevronRight className="h-4 w-4 text-slate-400" />
                 </li>

@@ -9,10 +9,10 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_lecturer
 from app.core.config import get_settings
 from app.core.db import get_db
-from app.models import Booking, BookingGrantedVia, BookingStatus, User
+from app.models import Booking, BookingGrantedVia, BookingStatus, Device, User
 from app.models.quota import UserQuota
 from app.schemas import BookingCreate, BookingOut
 from app.services.access_control import can_user_book_device
@@ -99,6 +99,43 @@ async def my_quota(
     }
 
 
+@router.get("/pending")
+async def list_pending_bookings(
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Bookings awaiting approval — for lecturer/admin to approve or reject.
+
+    Defined before /{booking_id} so the literal path wins the route match.
+    """
+    rows = (
+        await db.execute(
+            select(Booking, User, Device)
+            .join(User, User.id == Booking.user_id)
+            .join(Device, Device.id == Booking.device_id)
+            .where(
+                Booking.approved.is_(None),
+                Booking.status == BookingStatus.SCHEDULED,
+            )
+            .order_by(Booking.start_time)
+        )
+    ).all()
+    return [
+        {
+            "id": str(b.id),
+            "student_name": owner.full_name,
+            "student_email": owner.email,
+            "student_code": owner.student_code,
+            "device_name": device.name,
+            "start_time": b.start_time.isoformat(),
+            "end_time": b.end_time.isoformat(),
+            "granted_via": b.granted_via.value,
+            "notes": b.notes,
+        }
+        for b, owner, device in rows
+    ]
+
+
 @router.get("/{booking_id}", response_model=BookingOut)
 async def get_booking(
     booking_id: UUID,
@@ -178,6 +215,59 @@ async def cancel_booking(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail={"code": "BOOKING_NOT_CANCELLABLE"}
         )
+    b.status = BookingStatus.CANCELLED
+    await db.commit()
+    await db.refresh(b)
+    return b
+
+
+@router.post("/{booking_id}/approve", response_model=BookingOut)
+async def approve_booking(
+    booking_id: UUID,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> Booking:
+    """Lecturer/admin approves a pending booking so the student can connect."""
+    b = (
+        await db.execute(select(Booking).where(Booking.id == booking_id))
+    ).scalar_one_or_none()
+    if b is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "BOOKING_NOT_FOUND"})
+    if b.approved is True:
+        return b
+    if b.status != BookingStatus.SCHEDULED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"code": "BOOKING_NOT_PENDING"}
+        )
+    b.approved = True
+    b.decided_by = user.id
+    b.decided_at = _utcnow()
+    await db.commit()
+    await db.refresh(b)
+    return b
+
+
+@router.post("/{booking_id}/reject", response_model=BookingOut)
+async def reject_booking(
+    booking_id: UUID,
+    note: str | None = None,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> Booking:
+    """Lecturer/admin rejects a pending booking — frees the slot."""
+    b = (
+        await db.execute(select(Booking).where(Booking.id == booking_id))
+    ).scalar_one_or_none()
+    if b is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "BOOKING_NOT_FOUND"})
+    if b.status != BookingStatus.SCHEDULED:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"code": "BOOKING_NOT_PENDING"}
+        )
+    b.approved = False
+    b.decided_by = user.id
+    b.decided_at = _utcnow()
+    b.decision_note = note
     b.status = BookingStatus.CANCELLED
     await db.commit()
     await db.refresh(b)

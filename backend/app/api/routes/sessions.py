@@ -51,6 +51,11 @@ async def provision(
             status.HTTP_409_CONFLICT,
             detail={"code": "BOOKING_NOT_ACTIVATABLE", "status": booking.status.value},
         )
+    if booking.approved is not True:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={"code": "BOOKING_NOT_APPROVED"},
+        )
     now = datetime.now(timezone.utc)
     if now < booking.start_time:
         # Allow 5 min grace before slot starts

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Cpu, Users, ListChecks, Activity, ShieldCheck, Settings as SettingsIcon } from "lucide-react";
+import { Cpu, Users, ListChecks, Activity, ShieldCheck, ClipboardCheck, Settings as SettingsIcon } from "lucide-react";
 
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
@@ -40,6 +40,14 @@ const TILES: readonly Tile[] = [
     desc: "Gán thiết bị cho lớp, cấp/thu hồi quyền riêng cho sinh viên",
     icon: <ShieldCheck className="h-6 w-6" />,
     color: "from-teal-500 to-teal-700",
+    roles: ["admin", "lecturer"],
+  },
+  {
+    href: "/admin/approvals",
+    title: "Duyệt đặt lịch",
+    desc: "Duyệt / từ chối yêu cầu đặt lịch dùng thiết bị của sinh viên",
+    icon: <ClipboardCheck className="h-6 w-6" />,
+    color: "from-indigo-500 to-indigo-700",
     roles: ["admin", "lecturer"],
   },
   {

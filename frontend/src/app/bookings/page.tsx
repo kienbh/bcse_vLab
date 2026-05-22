@@ -18,17 +18,28 @@ type Booking = {
   end_time: string;
   status: "scheduled" | "active" | "completed" | "cancelled" | "no_show";
   notes: string | null;
+  approved: boolean | null;
+  decision_note: string | null;
 };
+
+// Combined approval + lifecycle status shown to the student.
+function bookingView(b: Booking): { label: string; badge: string } {
+  if (b.approved === false)
+    return { label: "Bị từ chối", badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" };
+  if (b.status === "scheduled" && b.approved !== true)
+    return { label: "Chờ duyệt", badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" };
+  if (b.status === "scheduled")
+    return { label: "Đã duyệt", badge: "bg-vju-100 text-vju-700 dark:bg-vju-900/40 dark:text-vju-100" };
+  if (b.status === "active")
+    return { label: "Đang dùng", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300" };
+  if (b.status === "completed")
+    return { label: "Hoàn thành", badge: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" };
+  if (b.status === "no_show")
+    return { label: "Vắng mặt", badge: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300" };
+  return { label: "Đã huỷ", badge: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300" };
+}
 
 type Device = { id: string; name: string; model: string; device_type: string };
-
-const STATUS_BADGE: Record<Booking["status"], string> = {
-  scheduled: "bg-vju-100 text-vju-700 dark:bg-vju-900/40 dark:text-vju-100",
-  active: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
-  completed: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400",
-  cancelled: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
-  no_show: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-};
 
 const STATUS_BG: Record<Booking["status"], string> = {
   scheduled: "bg-vju-500/30 border-vju-500",
@@ -207,8 +218,13 @@ function BookingsInner() {
               const now = Date.now();
               const start = new Date(b.start_time).getTime();
               const end = new Date(b.end_time).getTime();
-              const canConnect = (b.status === "scheduled" || b.status === "active") && now >= start - 5 * 60_000 && now < end;
+              const canConnect =
+                b.approved === true &&
+                (b.status === "scheduled" || b.status === "active") &&
+                now >= start - 5 * 60_000 &&
+                now < end;
               const canCancel = b.status === "scheduled" || b.status === "active";
+              const sv = bookingView(b);
               return (
                 <li key={b.id} className="surface flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-4">
@@ -227,8 +243,8 @@ function BookingsInner() {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Countdown start={b.start_time} end={b.end_time} />
-                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${STATUS_BADGE[b.status]}`}>
-                      {b.status}
+                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${sv.badge}`}>
+                      {sv.label}
                     </span>
                     {canConnect && (
                       <button

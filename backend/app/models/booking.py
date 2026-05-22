@@ -59,7 +59,17 @@ class Booking(Base, TimestampMixin):
     )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="bookings")
+    # Approval gate — NULL = chờ duyệt, True = đã duyệt, False = bị từ chối.
+    approved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    decided_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="bookings", foreign_keys=[user_id])
     device: Mapped[Device] = relationship(back_populates="bookings")
     class_: Mapped[Class | None] = relationship(back_populates="bookings", foreign_keys=[class_id])
     special_access: Mapped[SpecialAccess | None] = relationship(

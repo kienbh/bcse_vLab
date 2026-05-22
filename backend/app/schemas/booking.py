@@ -26,3 +26,5 @@ class BookingOut(BaseModel):
     end_time: datetime
     status: BookingStatus
     notes: str | None
+    approved: bool | None = None
+    decision_note: str | None = None
