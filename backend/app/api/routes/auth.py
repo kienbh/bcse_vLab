@@ -19,10 +19,12 @@ from app.api.deps import get_current_user, require_admin
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import (
+    REFRESH_COOKIE,
     clear_auth_cookies,
     issue_access_token,
     issue_refresh_token,
     set_auth_cookies,
+    verify_token,
 )
 from app.models import User, UserRole
 from app.models.quota import UserQuota
@@ -119,6 +121,44 @@ async def change_password(
 
 @router.get("/me")
 async def me(user: User = Depends(get_current_user)) -> dict[str, Any]:
+    return _user_dict(user)
+
+
+@router.post("/refresh")
+async def refresh(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Mint a fresh access token from the long-lived refresh cookie.
+
+    Lets the SPA recover from access-token expiry without forcing a re-login.
+    """
+    raw = request.cookies.get(REFRESH_COOKIE)
+    if not raw:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "NOT_AUTHENTICATED"}
+        )
+    try:
+        payload = verify_token(raw)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "INVALID_REFRESH"}
+        )
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "INVALID_REFRESH"}
+        )
+    user = (
+        await db.execute(select(User).where(User.id == UUID(payload["sub"])))
+    ).scalar_one_or_none()
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "NOT_AUTHENTICATED"}
+        )
+    access = issue_access_token(sub=str(user.id), role=user.role.value)
+    new_refresh = issue_refresh_token(sub=str(user.id))
+    set_auth_cookies(response, access=access, refresh=new_refresh)
     return _user_dict(user)
 
 

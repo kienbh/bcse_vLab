@@ -5,8 +5,10 @@ import { Calendar, Plus, Cpu, Inbox, ExternalLink, X, List, CalendarDays } from 
 import { useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
+import { SessionLaunchModal, type SessionResult } from "@/components/BookingModal";
 import { Countdown } from "@/components/Countdown";
 import { L, useLocaleListener } from "@/components/LocaleText";
+import { apiPost } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -65,6 +67,7 @@ function BookingsInner() {
   const [view, setView] = useState<"list" | "week">("list");
   const [weekOffset, setWeekOffset] = useState(0);
   const [hideOld, setHideOld] = useState(false);
+  const [session, setSession] = useState<SessionResult | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -96,20 +99,18 @@ function BookingsInner() {
   };
 
   const connect = async (id: string) => {
-    const r = await fetch(`${API}/sessions/provision/${id}`, { method: "POST", credentials: "include" });
+    const r = await apiPost(`/sessions/provision/${id}`);
     if (r.ok) {
-      const data = await r.json();
-      try { await navigator.clipboard?.writeText(data.private_key); } catch { /* */ }
-      window.open(data.wetty_url, "_blank");
+      setSession((await r.json()) as SessionResult);
       return;
     }
     const e = await r.json().catch(() => ({}));
     const code = e?.detail?.code ?? "ERROR";
     if (code === "SESSION_EXISTS") {
-      // Already provisioned — re-open the existing web terminal.
+      // Already provisioned — reopen connect info for the existing session.
       const r2 = await fetch(`${API}/sessions/by-booking/${id}`, { credentials: "include" });
       if (r2.ok) {
-        window.open((await r2.json()).wetty_url, "_blank");
+        setSession((await r2.json()) as SessionResult);
         return;
       }
     }
@@ -282,6 +283,10 @@ function BookingsInner() {
           onToday={() => setWeekOffset(0)}
           weekOffset={weekOffset}
         />
+      )}
+
+      {session && (
+        <SessionLaunchModal session={session} onClose={() => setSession(null)} />
       )}
     </div>
   );

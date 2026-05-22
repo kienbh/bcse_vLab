@@ -326,51 +326,46 @@ export function SessionLaunchModal({ session, onClose }: SessionLaunchModalProps
         </header>
 
         <div className="space-y-4 p-5">
+          {resumed ? (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900/50">
+              Session này đã được provision trước đó — private key chỉ hiện 1
+              lần lúc tạo. Kết thúc session rồi tạo lại nếu cần key mới.
+            </p>
+          ) : (
+            <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
+              <p className="flex items-center gap-2 text-xs font-bold">
+                <KeyRound className="h-3.5 w-3.5 text-accent-500" />
+                Kết nối SSH — lưu key vào file (vd{" "}
+                <code className="rounded bg-slate-200 px-1 dark:bg-slate-700">~/.ssh/vju-session</code>), chmod 600, rồi chạy:
+              </p>
+              <pre className="overflow-x-auto rounded-md bg-slate-900 px-3 py-2 font-mono text-[11px] text-emerald-300">
+                ssh -i ~/.ssh/vju-session -p {session.ssh_port} {session.ssh_user}@{session.ssh_host}
+              </pre>
+              <button
+                type="button"
+                onClick={copyKey}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+              >
+                {copied ? "✓ Đã copy private key" : "Copy private key"}
+              </button>
+              <textarea
+                readOnly
+                value={session.private_key}
+                rows={7}
+                className="block w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+              />
+            </div>
+          )}
+
           <a
             href={session.wetty_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-vju-500 to-vju-700 px-4 py-3 text-sm font-bold text-white shadow-md hover:shadow-lg"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            <ExternalLink className="h-4 w-4" />
-            Mở web terminal (wetty) trong tab mới
+            <ExternalLink className="h-3.5 w-3.5" />
+            Thử web terminal trong trình duyệt (beta)
           </a>
-
-          {resumed ? (
-            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-900/50">
-              Session này đã được provision trước đó — private key chỉ hiện 1
-              lần lúc tạo. Dùng web terminal ở trên, hoặc kết thúc session rồi
-              tạo lại nếu cần SSH client native.
-            </p>
-          ) : (
-            <details className="rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900/50">
-              <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-semibold">
-                <KeyRound className="h-3.5 w-3.5 text-accent-500" />
-                Hoặc dùng SSH client native (private key chỉ hiện 1 lần)
-              </summary>
-              <div className="space-y-2 px-3 py-2 pt-0">
-                <p className="text-[11px] text-slate-500">
-                  Lưu key vào file (vd <code className="rounded bg-slate-200 px-1 dark:bg-slate-700">~/.ssh/vju-session</code>), chmod 600, rồi:
-                </p>
-                <pre className="overflow-x-auto rounded-md bg-slate-900 px-3 py-2 font-mono text-[11px] text-emerald-300">
-                  ssh -i ~/.ssh/vju-session -p {session.ssh_port} {session.ssh_user}@{session.ssh_host}
-                </pre>
-                <button
-                  type="button"
-                  onClick={copyKey}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
-                >
-                  {copied ? "✓ Đã copy private key" : "Copy private key"}
-                </button>
-                <textarea
-                  readOnly
-                  value={session.private_key}
-                  rows={8}
-                  className="block w-full rounded-md border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[10px] text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                />
-              </div>
-            </details>
-          )}
 
           <p className="text-[11px] text-slate-500">
             Fingerprint: <code className="font-mono">{session.fingerprint}</code>

@@ -8,6 +8,7 @@ import { AuthGate } from "@/components/AuthGate";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
+import { apiPost } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -89,10 +90,7 @@ function FamilyInner({
   }, [load]);
 
   const connect = async (device: Device, bookingId: string) => {
-    const r = await fetch(`${API}/sessions/provision/${bookingId}`, {
-      method: "POST",
-      credentials: "include",
-    });
+    const r = await apiPost(`/sessions/provision/${bookingId}`);
     if (r.ok) {
       setSession((await r.json()) as SessionResult);
       return;
