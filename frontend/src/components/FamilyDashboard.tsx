@@ -265,18 +265,7 @@ function FamilyInner({
           </p>
         </div>
       ) : (
-        <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {devices.map((d) => (
-            <li key={d.id}>
-              <DeviceCard
-                device={d}
-                family={family}
-                onBook={setPicked}
-                onConnect={connect}
-              />
-            </li>
-          ))}
-        </ul>
+        renderClustered(devices, family, setPicked, connect)
       )}
 
       {picked && (
@@ -299,6 +288,58 @@ function FamilyInner({
           onClose={() => setSession(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Render the device grid. If devices carry a `capabilities.cluster` tag (VPS
+ * are split across Proxmox nodes), group them into labelled sections; otherwise
+ * one flat grid (FPGA / Jetson / RPi).
+ */
+function renderClustered(
+  devices: Device[],
+  family: DeviceFamily,
+  onBook: (d: Device) => void,
+  onConnect: (d: Device, bookingId: string) => void,
+): React.ReactNode {
+  const grid = (list: Device[]) => (
+    <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+      {list.map((d) => (
+        <li key={d.id}>
+          <DeviceCard device={d} family={family} onBook={onBook} onConnect={onConnect} />
+        </li>
+      ))}
+    </ul>
+  );
+
+  const groups = new Map<string, Device[]>();
+  for (const d of devices) {
+    const c =
+      typeof d.capabilities?.cluster === "string" ? (d.capabilities.cluster as string) : "";
+    const arr = groups.get(c);
+    if (arr) arr.push(d);
+    else groups.set(c, [d]);
+  }
+  const keys = [...groups.keys()];
+  if (keys.length === 1 && keys[0] === "") return grid(devices);
+
+  return (
+    <div className="flex flex-col gap-8">
+      {keys.sort().map((ck) => (
+        <section key={ck || "_none"} className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
+            <Server className="h-4 w-4 text-indigo-500" />
+            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">
+              {ck || "Chưa phân cụm"}
+            </h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">
+              {groups.get(ck)!.length} máy
+            </span>
+          </div>
+          {grid(groups.get(ck)!)}
+        </section>
+      ))}
     </div>
   );
 }

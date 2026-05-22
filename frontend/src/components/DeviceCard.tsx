@@ -41,8 +41,10 @@ export type Device = {
  * instantly readable across the 3×3 grid.
  */
 function splitDeviceNumber(name: string): { prefix: string; number: string | null } {
-  const m = name.match(/^(.*?[-_])(\d{1,4})$/);
-  if (m) return { prefix: m[1], number: m[2] };
+  // Trailing digit group, with or without a separator: "fpga-kv260-001" →
+  // ("fpga-kv260-","001"), "sv21" → ("sv","21").
+  const m = name.match(/^(.*?)(\d{1,4})$/);
+  if (m && m[1]) return { prefix: m[1], number: m[2] };
   return { prefix: name, number: null };
 }
 
@@ -320,9 +322,11 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
               {theme.badge}
             </p>
             <p className="mt-1 leading-none">
-              <span className="font-mono text-sm font-semibold opacity-75">
-                {prefix.toUpperCase()}
-              </span>
+              {number && (
+                <span className="font-mono text-sm font-semibold opacity-75">
+                  {prefix.toUpperCase()}
+                </span>
+              )}
               {number && (
                 <span className="ml-0.5 font-mono text-3xl font-extrabold tracking-tight drop-shadow">
                   {number}
@@ -459,6 +463,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
         {Object.keys(device.capabilities).length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(device.capabilities)
+              .filter(([k]) => k !== "cluster")
               .slice(0, 6)
               .map(([k, v]) => (
                 <span
