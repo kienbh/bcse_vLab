@@ -26,3 +26,8 @@ class BookingOut(BaseModel):
     end_time: datetime
     status: BookingStatus
     notes: str | None
+    # M6 — approval lifecycle (visible to the student so they see request state)
+    request_reason: str | None = None
+    decision_note: str | None = None
+    decided_at: datetime | None = None
+    planned_slot_id: UUID | None = None

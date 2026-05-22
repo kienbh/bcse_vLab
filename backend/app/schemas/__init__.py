@@ -24,8 +24,13 @@ from app.schemas.schedule import (
     GroupMemberRow,
     GroupOut,
     GroupUpdate,
+    MyScheduleOut,
+    MySlotOut,
+    PendingRequestOut,
     PlannedSlotCreate,
     PlannedSlotOut,
+    RequestCreate,
+    RequestDecide,
 )
 from app.schemas.user import UserOut
 
@@ -58,4 +63,9 @@ __all__ = [
     "GroupMemberAdd",
     "PlannedSlotCreate",
     "PlannedSlotOut",
+    "MySlotOut",
+    "MyScheduleOut",
+    "RequestCreate",
+    "RequestDecide",
+    "PendingRequestOut",
 ]

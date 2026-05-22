@@ -112,56 +112,20 @@ async def get_booking(
     return b
 
 
-@router.post("", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
-async def create_booking(
-    payload: BookingCreate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> Booking:
-    decision = await can_user_book_device(
-        db,
-        user_id=user.id,
-        device_id=payload.device_id,
-        start_time=payload.start_time,
-        end_time=payload.end_time,
+@router.post("", status_code=status.HTTP_403_FORBIDDEN)
+async def create_booking_disabled(
+    _: User = Depends(get_current_user),
+) -> dict:
+    """M6: free self-booking is removed. Students use the lecturer's weekly
+    plan (auto-allocated group slots via POST /planned-slots/{id}/start) or
+    submit an ad-hoc request for approval (POST /requests)."""
+    raise HTTPException(
+        status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "FREE_BOOKING_DISABLED",
+            "hint": "Đặt lịch tự do đã bỏ — dùng lịch nhóm hoặc gửi đề xuất duyệt.",
+        },
     )
-    if not decision.allowed:
-        http = (
-            status.HTTP_403_FORBIDDEN
-            if decision.reason == "ACCESS_DENIED"
-            else status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
-        raise HTTPException(http, detail={"code": decision.reason, "details": decision.details})
-
-    booking = Booking(
-        user_id=user.id,
-        device_id=payload.device_id,
-        granted_via=(
-            BookingGrantedVia.CLASS
-            if decision.granted_via == "class"
-            else BookingGrantedVia.SPECIAL_ACCESS
-        ),
-        class_id=decision.class_id,
-        special_access_id=decision.special_access_id,
-        start_time=payload.start_time,
-        end_time=payload.end_time,
-        status=BookingStatus.SCHEDULED,
-        notes=payload.notes,
-    )
-    db.add(booking)
-    try:
-        await db.commit()
-    except IntegrityError as e:
-        await db.rollback()
-        msg = str(e.orig).lower()
-        if "no_overlap" in msg or "exclude" in msg:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail={"code": "BOOKING_CONFLICT"},
-            )
-        raise
-    await db.refresh(booking)
-    return booking
 
 
 @router.post("/{booking_id}/cancel", response_model=BookingOut)

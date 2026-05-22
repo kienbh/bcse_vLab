@@ -1,4 +1,5 @@
 """M6 group-scheduling DTOs — single-student enrollment, groups, weekly plan."""
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -77,3 +78,56 @@ class PlannedSlotOut(BaseModel):
     group_name: str
     day_of_week: int
     time_slot: TimeSlot
+
+
+# --- runtime: student schedule view -----------------------------------------
+
+class MySlotOut(BaseModel):
+    """One planned slot from the student's group's weekly schedule."""
+
+    id: UUID
+    device_id: UUID
+    device_name: str
+    day_of_week: int
+    time_slot: TimeSlot
+    starts_hhmm: str
+    ends_hhmm: str
+    is_live_now: bool
+
+
+class MyScheduleOut(BaseModel):
+    class_id: UUID | None = None
+    class_name: str | None = None
+    group_id: UUID | None = None
+    group_name: str | None = None
+    is_leader: bool = False
+    slots: list[MySlotOut] = Field(default_factory=list)
+
+
+# --- runtime: ad-hoc out-of-plan requests -----------------------------------
+
+class RequestCreate(BaseModel):
+    device_id: UUID
+    start_time: datetime
+    end_time: datetime
+    reason: str = Field(..., min_length=10, max_length=500)
+
+
+class RequestDecide(BaseModel):
+    decision_note: str | None = Field(None, max_length=500)
+
+
+class PendingRequestOut(BaseModel):
+    """An ad-hoc request awaiting a lecturer/admin decision (approval queue)."""
+
+    booking_id: UUID
+    requester_id: UUID
+    requester_display: str
+    device_id: UUID
+    device_name: str
+    class_id: UUID | None = None
+    start_time: datetime
+    end_time: datetime
+    request_reason: str | None = None
+    status: str
+    created_at: datetime
