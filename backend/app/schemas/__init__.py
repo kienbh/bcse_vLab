@@ -16,6 +16,17 @@ from app.schemas.reset_request import (
     ResetRequestDecide,
     ResetRequestOut,
 )
+from app.schemas.schedule import (
+    EnrollmentRow,
+    EnrollStudent,
+    GroupCreate,
+    GroupMemberAdd,
+    GroupMemberRow,
+    GroupOut,
+    GroupUpdate,
+    PlannedSlotCreate,
+    PlannedSlotOut,
+)
 from app.schemas.user import UserOut
 
 __all__ = [
@@ -37,4 +48,14 @@ __all__ = [
     "ResetRequestCreate",
     "ResetRequestDecide",
     "ResetRequestOut",
+    # M6 group scheduling
+    "EnrollStudent",
+    "EnrollmentRow",
+    "GroupCreate",
+    "GroupUpdate",
+    "GroupOut",
+    "GroupMemberRow",
+    "GroupMemberAdd",
+    "PlannedSlotCreate",
+    "PlannedSlotOut",
 ]
