@@ -3,7 +3,10 @@
 import {
   Activity,
   Calendar,
+  Cpu,
+  HardDrive,
   Loader2,
+  MemoryStick,
   Power,
   Radio,
   Sparkles,
@@ -459,8 +462,30 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
           </div>
         )}
 
-        {/* Capability key:value chips — show actual specs, not just keys */}
-        {Object.keys(device.capabilities).length > 0 ? (
+        {/* Specs. For a VPS the CPU / RAM / Disk ARE the identity — show them
+            as three bold stat tiles, not tiny chips. Others keep key:val chips. */}
+        {device.device_type === "vps" ? (
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { icon: <Cpu className="h-5 w-5" />, value: formatCapValue(device.capabilities.vcpu), unit: "vCPU" },
+              { icon: <MemoryStick className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.ram_gb)} GB`, unit: "RAM" },
+              { icon: <HardDrive className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.disk_gb)} GB`, unit: "Ổ đĩa" },
+            ].map((s) => (
+              <div
+                key={s.unit}
+                className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white py-3 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40"
+              >
+                <span className="text-indigo-500 dark:text-indigo-400">{s.icon}</span>
+                <span className="text-lg font-extrabold leading-none text-slate-800 dark:text-slate-100">
+                  {s.value}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  {s.unit}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : Object.keys(device.capabilities).length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(device.capabilities)
               .filter(([k]) => k !== "cluster")

@@ -265,7 +265,7 @@ function FamilyInner({
           </p>
         </div>
       ) : (
-        renderClustered(devices, family, setPicked, connect)
+        renderByTier(devices, family, setPicked, connect)
       )}
 
       {picked && (
@@ -292,12 +292,21 @@ function FamilyInner({
   );
 }
 
+// VPS tiers (capabilities.tier) — ordered low → high. Categorised by config so
+// students pick the right size; tầm cao / VPS-GPU are placeholders for later.
+const TIER_META: Record<string, { label: string; order: number; blurb: string }> = {
+  thap: { label: "VPS tầm thấp", order: 1, blurb: "2 GB RAM — học tập, web nhẹ, dịch vụ nhỏ" },
+  trung: { label: "VPS tầm trung", order: 2, blurb: "4 GB RAM — back-end, API, cơ sở dữ liệu" },
+  cao: { label: "VPS tầm cao", order: 3, blurb: "RAM lớn — tải nặng, nhiều dịch vụ" },
+  gpu: { label: "VPS-GPU", order: 4, blurb: "Có GPU — huấn luyện AI / ML" },
+};
+
 /**
- * Render the device grid. If devices carry a `capabilities.cluster` tag (VPS
- * are split across Proxmox nodes), group them into labelled sections; otherwise
- * one flat grid (FPGA / Jetson / RPi).
+ * Render the device grid. VPS carry a `capabilities.tier` tag and are grouped
+ * into labelled tier sections (thấp / trung / cao / GPU). FPGA / Jetson / RPi
+ * have no tier → one flat grid.
  */
-function renderClustered(
+function renderByTier(
   devices: Device[],
   family: DeviceFamily,
   onBook: (d: Device) => void,
@@ -315,31 +324,34 @@ function renderClustered(
 
   const groups = new Map<string, Device[]>();
   for (const d of devices) {
-    const c =
-      typeof d.capabilities?.cluster === "string" ? (d.capabilities.cluster as string) : "";
-    const arr = groups.get(c);
+    const t = typeof d.capabilities?.tier === "string" ? (d.capabilities.tier as string) : "";
+    const arr = groups.get(t);
     if (arr) arr.push(d);
-    else groups.set(c, [d]);
+    else groups.set(t, [d]);
   }
   const keys = [...groups.keys()];
   if (keys.length === 1 && keys[0] === "") return grid(devices);
+  keys.sort((a, b) => (TIER_META[a]?.order ?? 99) - (TIER_META[b]?.order ?? 99));
 
   return (
     <div className="flex flex-col gap-8">
-      {keys.sort().map((ck) => (
-        <section key={ck || "_none"} className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 border-b border-slate-200 pb-2 dark:border-slate-800">
-            <Server className="h-4 w-4 text-indigo-500" />
-            <h2 className="text-sm font-bold uppercase tracking-wide text-slate-700 dark:text-slate-200">
-              {ck || "Chưa phân cụm"}
-            </h2>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500 dark:bg-slate-800">
-              {groups.get(ck)!.length} máy
-            </span>
-          </div>
-          {grid(groups.get(ck)!)}
-        </section>
-      ))}
+      {keys.map((tk) => {
+        const meta = TIER_META[tk];
+        return (
+          <section key={tk || "_none"} className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-slate-200 pb-2 dark:border-slate-800">
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
+                {meta?.label ?? "Khác"}
+              </h2>
+              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                {groups.get(tk)!.length} máy
+              </span>
+              {meta?.blurb && <span className="text-xs text-slate-400">{meta.blurb}</span>}
+            </div>
+            {grid(groups.get(tk)!)}
+          </section>
+        );
+      })}
     </div>
   );
 }
