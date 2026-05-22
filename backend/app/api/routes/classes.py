@@ -443,3 +443,43 @@ async def revoke_special_access(
     sa.revoked_by = user.id
     await db.commit()
     return {"status": "revoked"}
+
+
+@teacher_router.get("/students")
+async def list_students(
+    class_id: UUID | None = None,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Student roster so a lecturer can pick who to grant device access to.
+
+    `class_id` (optional) narrows to that class's active enrollments; without
+    it, returns every active student account.
+    """
+    if class_id is not None:
+        q = (
+            select(User)
+            .join(Enrollment, Enrollment.user_id == User.id)
+            .where(
+                Enrollment.class_id == class_id,
+                Enrollment.is_active.is_(True),
+                User.role == UserRole.STUDENT,
+            )
+            .order_by(User.full_name)
+        )
+    else:
+        q = (
+            select(User)
+            .where(User.role == UserRole.STUDENT, User.is_active.is_(True))
+            .order_by(User.full_name)
+        )
+    rows = (await db.execute(q)).scalars().all()
+    return [
+        {
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "student_code": u.student_code,
+        }
+        for u in rows
+    ]

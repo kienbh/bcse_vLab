@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyRound, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { CalendarClock, KeyRound, Plus, ShieldCheck, Trash2, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
@@ -9,41 +9,315 @@ import { useUser } from "@/lib/auth";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
 type Cls = { id: string; code: string; name: string };
-type Device = { id: string; name: string; model: string; device_type: string };
+type Device = { id: string; name: string; device_type: string };
+type Student = { id: string; email: string; full_name: string; student_code: string | null };
+type TimeWindow = { day_of_week: number; start: string; end: string };
 type Assignment = {
   id: string;
-  class_id: string;
   device_id: string;
   valid_from: string;
   valid_to: string;
+  allowed_time_windows: TimeWindow[];
   per_student_weekly_hours: number;
   per_student_max_concurrent: number;
   per_student_max_advance_days: number;
-  revoked_at: string | null;
 };
-type SpecialAccess = {
+type Grant = {
   id: string;
   user_email: string;
   user_name: string;
-  device_id: string;
   device_name: string;
   valid_from: string;
   valid_to: string;
+  allowed_time_windows: TimeWindow[];
   weekly_hours_limit: number | null;
   reason: string;
-  granted_at: string;
   revoked_at: string | null;
 };
 
+const DAYS = ["", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
 const j = (r: Response) => (r.ok ? r.json() : Promise.reject(r));
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
-async function errText(r: Response): Promise<string> {
+const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("vi-VN");
+const dayToIso = (d: string) => new Date(`${d}T00:00:00`).toISOString();
+const dayEndToIso = (d: string) => new Date(`${d}T23:59:59`).toISOString();
+async function errText(r: Response) {
   const e = await r.json().catch(() => ({}));
   return e?.detail?.code ?? e?.detail ?? `HTTP ${r.status}`;
 }
+const fmtWindows = (ws: TimeWindow[]) =>
+  ws.length === 0
+    ? "cả tuần (24/7)"
+    : ws.map((w) => `${DAYS[w.day_of_week]} ${w.start}–${w.end}`).join(", ");
 
-// ----------------------------------------------------------------- class tab
+// ------------------------------------------------ weekly time-window editor
+function WeeklyWindowEditor({
+  windows, onChange,
+}: { windows: TimeWindow[]; onChange: (w: TimeWindow[]) => void }) {
+  const add = () => onChange([...windows, { day_of_week: 1, start: "08:00", end: "11:00" }]);
+  const upd = (i: number, patch: Partial<TimeWindow>) =>
+    onChange(windows.map((w, k) => (k === i ? { ...w, ...patch } : w)));
+  const del = (i: number) => onChange(windows.filter((_, k) => k !== i));
+
+  return (
+    <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+      <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-400">
+        <CalendarClock className="h-3.5 w-3.5" />
+        Khung giờ tuần (để trống = được dùng cả tuần)
+      </div>
+      <div className="space-y-2">
+        {windows.map((w, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <select
+              value={w.day_of_week}
+              onChange={(e) => upd(i, { day_of_week: Number(e.target.value) })}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+            >
+              {[1, 2, 3, 4, 5, 6, 7].map((d) => (
+                <option key={d} value={d}>{DAYS[d]}</option>
+              ))}
+            </select>
+            <input
+              type="time"
+              value={w.start}
+              onChange={(e) => upd(i, { start: e.target.value })}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+            <span className="text-slate-400">→</span>
+            <input
+              type="time"
+              value={w.end}
+              onChange={(e) => upd(i, { end: e.target.value })}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+            />
+            <button type="button" onClick={() => del(i)} className="text-rose-500 hover:text-rose-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={add}
+        className="mt-2 inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+      >
+        <Plus className="h-3 w-3" /> Thêm khung giờ
+      </button>
+    </div>
+  );
+}
+
+// ------------------------------------------------------ student-grant tab
+function StudentGrantTab({ classes, devices }: { classes: Cls[]; devices: Device[] }) {
+  const [classId, setClassId] = useState("");
+  const [students, setStudents] = useState<Student[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [grants, setGrants] = useState<Grant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const [deviceId, setDeviceId] = useState("");
+  const [windows, setWindows] = useState<TimeWindow[]>([]);
+  const [validFrom, setValidFrom] = useState("");
+  const [validTo, setValidTo] = useState("");
+  const [weeklyHours, setWeeklyHours] = useState("");
+  const [reason, setReason] = useState("");
+
+  const loadStudents = useCallback((cid: string) => {
+    const url = cid ? `${API}/teacher/students?class_id=${cid}` : `${API}/teacher/students`;
+    fetch(url, { credentials: "include" }).then(j).then(setStudents).catch(() => setStudents([]));
+    setPicked(new Set());
+  }, []);
+  const loadGrants = useCallback(() => {
+    setLoading(true);
+    fetch(`${API}/teacher/special-access`, { credentials: "include" })
+      .then(j)
+      .then(setGrants)
+      .catch(() => setGrants([]))
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => loadStudents(classId), [classId, loadStudents]);
+  useEffect(loadGrants, [loadGrants]);
+
+  const toggle = (id: string) =>
+    setPicked((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const allChecked = students.length > 0 && picked.size === students.length;
+  const toggleAll = () =>
+    setPicked(allChecked ? new Set() : new Set(students.map((s) => s.id)));
+
+  const grant = async () => {
+    if (picked.size === 0) return alert("Chưa chọn sinh viên nào.");
+    if (!deviceId || !validFrom || !validTo) return alert("Chọn thiết bị + thời hạn.");
+    if (reason.trim().length < 10) return alert("Lý do cần ≥ 10 ký tự.");
+    setBusy(true);
+    const emails = students.filter((s) => picked.has(s.id)).map((s) => s.email);
+    let ok = 0;
+    const fails: string[] = [];
+    for (const email of emails) {
+      const r = await fetch(`${API}/teacher/special-access`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_email: email,
+          device_id: deviceId,
+          valid_from: dayToIso(validFrom),
+          valid_to: dayEndToIso(validTo),
+          allowed_time_windows: windows,
+          weekly_hours_limit: weeklyHours ? Number(weeklyHours) : null,
+          reason: reason.trim(),
+        }),
+      });
+      if (r.ok) ok += 1;
+      else fails.push(`${email}: ${await errText(r)}`);
+    }
+    setBusy(false);
+    alert(`Cấp quyền: ${ok} thành công${fails.length ? `, ${fails.length} lỗi:\n${fails.join("\n")}` : ""}`);
+    setPicked(new Set());
+    loadGrants();
+  };
+
+  const revoke = async (id: string) => {
+    if (!confirm("Thu hồi quyền này?")) return;
+    const r = await fetch(`${API}/teacher/special-access/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (r.ok) loadGrants();
+    else alert(`Thu hồi lỗi: ${await errText(r)}`);
+  };
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid gap-5 lg:grid-cols-2">
+        {/* left: pick students */}
+        <div className="surface flex flex-col gap-3 p-5">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <Users className="h-4 w-4 text-vju-500" /> 1. Chọn sinh viên
+          </div>
+          <select
+            value={classId}
+            onChange={(e) => setClassId(e.target.value)}
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+          >
+            <option value="">Tất cả sinh viên</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>Lớp: {c.code} · {c.name}</option>
+            ))}
+          </select>
+          {students.length > 0 && (
+            <label className="flex items-center gap-2 text-xs font-semibold text-slate-500">
+              <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+              Chọn tất cả ({students.length})
+            </label>
+          )}
+          <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700">
+            {students.length === 0 ? (
+              <p className="p-4 text-center text-xs text-slate-500">Không có sinh viên.</p>
+            ) : (
+              students.map((s) => (
+                <label
+                  key={s.id}
+                  className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50"
+                >
+                  <input type="checkbox" checked={picked.has(s.id)} onChange={() => toggle(s.id)} />
+                  <span className="flex-1">
+                    {s.full_name}{" "}
+                    <span className="text-xs text-slate-500">
+                      {s.student_code ?? s.email}
+                    </span>
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <p className="text-xs font-semibold text-vju-600 dark:text-vju-400">
+            Đã chọn: {picked.size} sinh viên
+          </p>
+        </div>
+
+        {/* right: grant config */}
+        <div className="surface flex flex-col gap-3 p-5">
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <ShieldCheck className="h-4 w-4 text-vju-500" /> 2. Cấp thiết bị + khung giờ
+          </div>
+          <Field label="Thiết bị">
+            <select
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+            >
+              <option value="">— chọn thiết bị —</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>{d.name} ({d.device_type})</option>
+              ))}
+            </select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <TextInput label="Hiệu lực từ" type="date" value={validFrom} onChange={setValidFrom} />
+            <TextInput label="Hiệu lực đến" type="date" value={validTo} onChange={setValidTo} />
+          </div>
+          <WeeklyWindowEditor windows={windows} onChange={setWindows} />
+          <div className="grid grid-cols-2 gap-3">
+            <TextInput label="Giới hạn giờ/tuần (trống = mặc định)" type="number" required={false} value={weeklyHours} onChange={setWeeklyHours} />
+            <TextInput label="Lý do (≥10 ký tự)" value={reason} onChange={setReason} placeholder="Lịch thực hành học kỳ..." />
+          </div>
+          <button
+            type="button"
+            onClick={grant}
+            disabled={busy}
+            className="mt-1 rounded-md bg-vju-500 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Đang cấp..." : `Cấp quyền cho ${picked.size} sinh viên`}
+          </button>
+        </div>
+      </div>
+
+      {/* existing grants */}
+      <div>
+        <h3 className="mb-2 text-sm font-bold">Quyền đã cấp</h3>
+        {loading ? (
+          <div className="surface h-20 animate-pulse" />
+        ) : grants.length === 0 ? (
+          <div className="surface p-8 text-center text-sm text-slate-500">Chưa cấp quyền nào.</div>
+        ) : (
+          <ul className="space-y-2">
+            {grants.map((g) => (
+              <li key={g.id} className={`surface p-3 ${g.revoked_at ? "opacity-50" : ""}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {g.user_name} <span className="font-normal text-slate-500">→ {g.device_name}</span>
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {fmtDate(g.valid_from)}–{fmtDate(g.valid_to)} · {fmtWindows(g.allowed_time_windows)}
+                      {g.revoked_at && " · ĐÃ THU HỒI"}
+                    </p>
+                  </div>
+                  {!g.revoked_at && (
+                    <button
+                      type="button"
+                      onClick={() => revoke(g.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
+                    >
+                      <Trash2 className="h-3 w-3" /> Thu hồi
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// -------------------------------------------------------- class-access tab
 function ClassAccessTab({ classes, devices }: { classes: Cls[]; devices: Device[] }) {
   const deviceName = useMemo(
     () => Object.fromEntries(devices.map((d) => [d.id, d.name])),
@@ -53,81 +327,55 @@ function ClassAccessTab({ classes, devices }: { classes: Cls[]; devices: Device[
   const [rows, setRows] = useState<Assignment[]>([]);
   const [loading, setLoading] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-
-  const blankForm = {
-    device_id: "",
-    valid_from: "",
-    valid_to: "",
-    per_student_weekly_hours: 20,
-    per_student_max_concurrent: 1,
-    per_student_max_advance_days: 14,
-  };
-  const [form, setForm] = useState(blankForm);
+  const [deviceId, setDeviceId] = useState("");
+  const [validFrom, setValidFrom] = useState("");
+  const [validTo, setValidTo] = useState("");
+  const [windows, setWindows] = useState<TimeWindow[]>([]);
+  const [weekly, setWeekly] = useState("20");
 
   const load = useCallback((cid: string) => {
-    if (!cid) {
-      setRows([]);
-      return;
-    }
+    if (!cid) return setRows([]);
     setLoading(true);
     fetch(`${API}/classes/${cid}/devices`, { credentials: "include" })
       .then(j)
-      .then((d) => setRows(d))
+      .then(setRows)
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => load(classId), [classId, load]);
 
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const create = async () => {
+    if (!deviceId || !validFrom || !validTo) return alert("Chọn thiết bị + thời hạn.");
     const r = await fetch(`${API}/classes/${classId}/devices`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        device_id: form.device_id,
-        valid_from: new Date(form.valid_from).toISOString(),
-        valid_to: new Date(form.valid_to).toISOString(),
-        allowed_time_windows: [],
-        per_student_weekly_hours: Number(form.per_student_weekly_hours),
-        per_student_max_concurrent: Number(form.per_student_max_concurrent),
-        per_student_max_advance_days: Number(form.per_student_max_advance_days),
+        device_id: deviceId,
+        valid_from: dayToIso(validFrom),
+        valid_to: dayEndToIso(validTo),
+        allowed_time_windows: windows,
+        per_student_weekly_hours: Number(weekly) || 20,
+        per_student_max_concurrent: 1,
+        per_student_max_advance_days: 14,
       }),
     });
     if (r.ok) {
       setShowAdd(false);
-      setForm(blankForm);
+      setDeviceId("");
+      setWindows([]);
       load(classId);
     } else alert(`Gán thất bại: ${await errText(r)}`);
   };
 
-  const saveEdit = async (a: Assignment) => {
-    const r = await fetch(`${API}/classes/${classId}/devices/${a.id}`, {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        valid_to: new Date(a.valid_to).toISOString(),
-        per_student_weekly_hours: Number(a.per_student_weekly_hours),
-        per_student_max_concurrent: Number(a.per_student_max_concurrent),
-        per_student_max_advance_days: Number(a.per_student_max_advance_days),
-      }),
-    });
-    if (r.ok) {
-      setEditId(null);
-      load(classId);
-    } else alert(`Sửa thất bại: ${await errText(r)}`);
-  };
-
   const revoke = async (id: string) => {
-    if (!confirm("Thu hồi quyền của lớp với thiết bị này?")) return;
+    if (!confirm("Thu hồi quyền lớp với thiết bị này?")) return;
     const r = await fetch(`${API}/classes/${classId}/devices/${id}`, {
       method: "DELETE",
       credentials: "include",
     });
     if (r.ok) load(classId);
-    else alert(`Thu hồi thất bại: ${await errText(r)}`);
+    else alert(`Thu hồi lỗi: ${await errText(r)}`);
   };
 
   return (
@@ -141,9 +389,7 @@ function ClassAccessTab({ classes, devices }: { classes: Cls[]; devices: Device[
           >
             <option value="">— chọn lớp —</option>
             {classes.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.code} · {c.name}
-              </option>
+              <option key={c.id} value={c.id}>{c.code} · {c.name}</option>
             ))}
           </select>
         </Field>
@@ -153,256 +399,75 @@ function ClassAccessTab({ classes, devices }: { classes: Cls[]; devices: Device[
             onClick={() => setShowAdd((v) => !v)}
             className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
           >
-            <Plus className="h-4 w-4" />
-            {showAdd ? "Đóng" : "Gán thiết bị"}
+            <Plus className="h-4 w-4" /> {showAdd ? "Đóng" : "Gán thiết bị cho lớp"}
           </button>
         )}
       </div>
 
       {showAdd && classId && (
-        <form onSubmit={create} className="surface grid gap-3 p-5 md:grid-cols-2">
+        <div className="surface grid gap-3 p-5 md:grid-cols-2">
           <Field label="Thiết bị">
             <select
-              required
-              value={form.device_id}
-              onChange={(e) => setForm({ ...form, device_id: e.target.value })}
+              value={deviceId}
+              onChange={(e) => setDeviceId(e.target.value)}
               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             >
               <option value="">— chọn thiết bị —</option>
               {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.device_type})
-                </option>
+                <option key={d.id} value={d.id}>{d.name} ({d.device_type})</option>
               ))}
             </select>
           </Field>
-          <div />
-          <TextInput label="Hiệu lực từ" type="datetime-local" value={form.valid_from} onChange={(v) => setForm({ ...form, valid_from: v })} />
-          <TextInput label="Hiệu lực đến" type="datetime-local" value={form.valid_to} onChange={(v) => setForm({ ...form, valid_to: v })} />
-          <TextInput label="Giờ/tuần mỗi SV" type="number" value={String(form.per_student_weekly_hours)} onChange={(v) => setForm({ ...form, per_student_weekly_hours: Number(v) })} />
-          <TextInput label="Số phiên đồng thời" type="number" value={String(form.per_student_max_concurrent)} onChange={(v) => setForm({ ...form, per_student_max_concurrent: Number(v) })} />
-          <TextInput label="Đặt trước tối đa (ngày)" type="number" value={String(form.per_student_max_advance_days)} onChange={(v) => setForm({ ...form, per_student_max_advance_days: Number(v) })} />
-          <div className="flex items-end">
-            <button type="submit" className="w-full rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white">
-              Gán
-            </button>
+          <TextInput label="Giờ/tuần mỗi SV" type="number" value={weekly} onChange={setWeekly} />
+          <TextInput label="Hiệu lực từ" type="date" value={validFrom} onChange={setValidFrom} />
+          <TextInput label="Hiệu lực đến" type="date" value={validTo} onChange={setValidTo} />
+          <div className="md:col-span-2">
+            <WeeklyWindowEditor windows={windows} onChange={setWindows} />
           </div>
-        </form>
+          <button type="button" onClick={create} className="md:col-span-2 rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white">
+            Gán cho lớp
+          </button>
+        </div>
       )}
 
       {!classId ? (
         <div className="surface p-10 text-center text-sm text-slate-500">
-          Chọn một lớp để xem &amp; quản lý thiết bị lớp đó được phép dùng.
+          Chọn lớp để xem &amp; gán thiết bị cho cả lớp.
         </div>
       ) : loading ? (
         <div className="surface h-24 animate-pulse" />
       ) : rows.length === 0 ? (
-        <div className="surface p-10 text-center text-sm text-slate-500">
-          Lớp này chưa được gán thiết bị nào.
-        </div>
+        <div className="surface p-10 text-center text-sm text-slate-500">Lớp này chưa gán thiết bị.</div>
       ) : (
         <ul className="space-y-2">
           {rows.map((a) => (
-            <li key={a.id} className="surface p-4">
-              {editId === a.id ? (
-                <div className="grid gap-3 md:grid-cols-4">
-                  <TextInput label="Hiệu lực đến" type="datetime-local" value={a.valid_to.slice(0, 16)} onChange={(v) => setRows((rs) => rs.map((x) => (x.id === a.id ? { ...x, valid_to: v } : x)))} />
-                  <TextInput label="Giờ/tuần" type="number" value={String(a.per_student_weekly_hours)} onChange={(v) => setRows((rs) => rs.map((x) => (x.id === a.id ? { ...x, per_student_weekly_hours: Number(v) } : x)))} />
-                  <TextInput label="Đồng thời" type="number" value={String(a.per_student_max_concurrent)} onChange={(v) => setRows((rs) => rs.map((x) => (x.id === a.id ? { ...x, per_student_max_concurrent: Number(v) } : x)))} />
-                  <TextInput label="Đặt trước (ngày)" type="number" value={String(a.per_student_max_advance_days)} onChange={(v) => setRows((rs) => rs.map((x) => (x.id === a.id ? { ...x, per_student_max_advance_days: Number(v) } : x)))} />
-                  <div className="flex gap-2 md:col-span-4">
-                    <button type="button" onClick={() => saveEdit(a)} className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white">
-                      Lưu
-                    </button>
-                    <button type="button" onClick={() => { setEditId(null); load(classId); }} className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold dark:border-slate-700">
-                      Huỷ
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{deviceName[a.device_id] ?? a.device_id}</p>
-                    <p className="text-xs text-slate-500">
-                      {fmtDate(a.valid_from)} → {fmtDate(a.valid_to)} · {a.per_student_weekly_hours}h/tuần ·{" "}
-                      {a.per_student_max_concurrent} phiên · đặt trước {a.per_student_max_advance_days}d
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setEditId(a.id)} className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
-                      <Pencil className="h-3 w-3" /> Sửa
-                    </button>
-                    <button type="button" onClick={() => revoke(a.id)} className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950">
-                      <Trash2 className="h-3 w-3" /> Thu hồi
-                    </button>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      <p className="text-xs text-slate-500">
-        ⓘ Gán thiết bị cho lớp = mọi sinh viên đã enroll lớp đó được phép đặt lịch thiết bị, trong
-        hạn mức trên. Truy cập theo khung giờ 24/7 (chưa giới hạn khung giờ).
-      </p>
-    </div>
-  );
-}
-
-// --------------------------------------------------------------- special tab
-function SpecialAccessTab({ devices }: { devices: Device[] }) {
-  const [rows, setRows] = useState<SpecialAccess[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const blankForm = {
-    user_email: "",
-    device_id: "",
-    valid_from: "",
-    valid_to: "",
-    weekly_hours_limit: "",
-    reason: "",
-  };
-  const [form, setForm] = useState(blankForm);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    fetch(`${API}/teacher/special-access`, { credentials: "include" })
-      .then(j)
-      .then((d) => setRows(d))
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(load, [load]);
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const r = await fetch(`${API}/teacher/special-access`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_email: form.user_email.trim().toLowerCase(),
-        device_id: form.device_id,
-        valid_from: new Date(form.valid_from).toISOString(),
-        valid_to: new Date(form.valid_to).toISOString(),
-        allowed_time_windows: [],
-        weekly_hours_limit: form.weekly_hours_limit ? Number(form.weekly_hours_limit) : null,
-        reason: form.reason.trim(),
-      }),
-    });
-    if (r.ok) {
-      setShowAdd(false);
-      setForm(blankForm);
-      load();
-    } else alert(`Cấp quyền thất bại: ${await errText(r)}`);
-  };
-
-  const revoke = async (id: string) => {
-    if (!confirm("Thu hồi quyền riêng này?")) return;
-    const r = await fetch(`${API}/teacher/special-access/${id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (r.ok) load();
-    else alert(`Thu hồi thất bại: ${await errText(r)}`);
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setShowAdd((v) => !v)}
-          className="inline-flex items-center gap-2 rounded-lg bg-vju-500 px-4 py-2 text-sm font-semibold text-white"
-        >
-          <Plus className="h-4 w-4" />
-          {showAdd ? "Đóng" : "Cấp quyền riêng"}
-        </button>
-      </div>
-
-      {showAdd && (
-        <form onSubmit={create} className="surface grid gap-3 p-5 md:grid-cols-2">
-          <TextInput label="Email sinh viên" value={form.user_email} onChange={(v) => setForm({ ...form, user_email: v })} placeholder="sv01@st.vju.ac.vn" />
-          <Field label="Thiết bị">
-            <select
-              required
-              value={form.device_id}
-              onChange={(e) => setForm({ ...form, device_id: e.target.value })}
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-            >
-              <option value="">— chọn thiết bị —</option>
-              {devices.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} ({d.device_type})
-                </option>
-              ))}
-            </select>
-          </Field>
-          <TextInput label="Hiệu lực từ" type="datetime-local" value={form.valid_from} onChange={(v) => setForm({ ...form, valid_from: v })} />
-          <TextInput label="Hiệu lực đến" type="datetime-local" value={form.valid_to} onChange={(v) => setForm({ ...form, valid_to: v })} />
-          <TextInput label="Giới hạn giờ/tuần (trống = quota chung)" type="number" required={false} value={form.weekly_hours_limit} onChange={(v) => setForm({ ...form, weekly_hours_limit: v })} />
-          <TextInput label="Lý do (≥10 ký tự)" value={form.reason} onChange={(v) => setForm({ ...form, reason: v })} placeholder="Khoá luận tốt nghiệp..." />
-          <button type="submit" className="md:col-span-2 rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white">
-            Cấp quyền
-          </button>
-        </form>
-      )}
-
-      {loading ? (
-        <div className="surface h-24 animate-pulse" />
-      ) : rows.length === 0 ? (
-        <div className="surface p-10 text-center text-sm text-slate-500">
-          Chưa có quyền riêng nào được cấp.
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {rows.map((s) => (
-            <li
-              key={s.id}
-              className={`surface p-4 ${s.revoked_at ? "opacity-50" : ""}`}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="font-semibold">
-                    {s.user_name}{" "}
-                    <span className="font-normal text-slate-500">({s.user_email})</span>
-                    {" → "}
-                    {s.device_name}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {fmtDate(s.valid_from)} → {fmtDate(s.valid_to)} ·{" "}
-                    {s.weekly_hours_limit ? `${s.weekly_hours_limit}h/tuần` : "quota chung"} ·{" "}
-                    {s.reason}
-                    {s.revoked_at && " · ĐÃ THU HỒI"}
-                  </p>
-                </div>
-                {!s.revoked_at && (
-                  <button
-                    type="button"
-                    onClick={() => revoke(s.id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
-                  >
-                    <Trash2 className="h-3 w-3" /> Thu hồi
-                  </button>
-                )}
+            <li key={a.id} className="surface flex flex-wrap items-center justify-between gap-3 p-4">
+              <div>
+                <p className="font-semibold">{deviceName[a.device_id] ?? a.device_id}</p>
+                <p className="text-xs text-slate-500">
+                  {fmtDate(a.valid_from)}–{fmtDate(a.valid_to)} · {fmtWindows(a.allowed_time_windows)} ·{" "}
+                  {a.per_student_weekly_hours}h/tuần
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => revoke(a.id)}
+                className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:hover:bg-rose-950"
+              >
+                <Trash2 className="h-3 w-3" /> Thu hồi
+              </button>
             </li>
           ))}
         </ul>
       )}
-      <p className="text-xs text-slate-500">
-        ⓘ Quyền riêng = cấp cho một sinh viên cụ thể quyền dùng một thiết bị, không phụ thuộc lớp
-        (vd làm khoá luận). Dùng khi sinh viên không enroll lớp có thiết bị đó.
-      </p>
     </div>
   );
 }
 
-// ------------------------------------------------------------------- shell
+// -------------------------------------------------------------------- shell
 function AccessInner() {
   const { user } = useUser();
-  const [tab, setTab] = useState<"class" | "special">("class");
+  const [tab, setTab] = useState<"student" | "class">("student");
   const [classes, setClasses] = useState<Cls[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
 
@@ -418,25 +483,25 @@ function AccessInner() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Quản lý quyền truy cập</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Cấp quyền sử dụng thiết bị</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          Gán thiết bị cho lớp, hoặc cấp quyền riêng cho từng sinh viên.
+          Chọn sinh viên + cấp thiết bị và khung giờ dùng hàng tuần.
         </p>
       </div>
 
       <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
-        <TabButton active={tab === "class"} onClick={() => setTab("class")} icon={<ShieldCheck className="h-4 w-4" />}>
-          Quyền theo lớp
+        <TabButton active={tab === "student"} onClick={() => setTab("student")} icon={<Users className="h-4 w-4" />}>
+          Cấp cho sinh viên
         </TabButton>
-        <TabButton active={tab === "special"} onClick={() => setTab("special")} icon={<KeyRound className="h-4 w-4" />}>
-          Quyền riêng (per-SV)
+        <TabButton active={tab === "class"} onClick={() => setTab("class")} icon={<KeyRound className="h-4 w-4" />}>
+          Cấp cho cả lớp
         </TabButton>
       </div>
 
-      {tab === "class" ? (
-        <ClassAccessTab classes={classes} devices={devices} />
+      {tab === "student" ? (
+        <StudentGrantTab classes={classes} devices={devices} />
       ) : (
-        <SpecialAccessTab devices={devices} />
+        <ClassAccessTab classes={classes} devices={devices} />
       )}
     </div>
   );
