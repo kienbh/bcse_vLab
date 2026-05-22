@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ListChecks, Plus, Upload } from "lucide-react";
+import { ArrowRight, ListChecks, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AdminPageHeader } from "@/components/AdminPageHeader";
@@ -45,7 +45,7 @@ function ClassesInner() {
   useEffect(refresh, []);
 
   if (!user || (user.role !== "admin" && user.role !== "lecturer")) {
-    return <div className="mx-auto max-w-3xl p-10 surface">Cần lecturer/admin.</div>;
+    return <div className="mx-auto max-w-3xl surface p-10">Cần lecturer/admin.</div>;
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -66,32 +66,16 @@ function ClassesInner() {
       setForm({ code: "", name: "", semester: "2026-1", starts_at: "", ends_at: "" });
       refresh();
     } else {
-      const e = await r.json().catch(() => ({}));
-      alert(`Tạo lớp thất bại: ${JSON.stringify(e)}`);
+      const err = await r.json().catch(() => ({}));
+      alert(`Tạo lớp thất bại: ${JSON.stringify(err)}`);
     }
-  };
-
-  const uploadCsv = async (classId: string, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const r = await fetch(`${API}/classes/${classId}/enroll/csv`, {
-      method: "POST",
-      credentials: "include",
-      body: fd,
-    });
-    const d = await r.json().catch(() => ({}));
-    if (r.ok) {
-      alert(
-        `Enrolled: ${d.enrolled}, created users: ${d.created_users}, skipped: ${d.skipped?.length ?? 0}, errors: ${d.errors?.length ?? 0}`,
-      );
-    } else alert(`Lỗi: ${JSON.stringify(d)}`);
   };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
       <AdminPageHeader
         title="Lớp học"
-        subtitle={`${classes.length} lớp`}
+        subtitle={`${classes.length} lớp — mở từng lớp để thêm SV, chia nhóm, lập lịch tuần`}
         actions={
           <button
             type="button"
@@ -109,19 +93,9 @@ function ClassesInner() {
           <Input label="Mã lớp" value={form.code} onChange={(v) => setForm({ ...form, code: v })} placeholder="CIS3043-2026-01" />
           <Input label="Học kỳ" value={form.semester} onChange={(v) => setForm({ ...form, semester: v })} />
           <Input label="Tên lớp" value={form.name} onChange={(v) => setForm({ ...form, name: v })} className="md:col-span-2" />
-          <Input
-            label="Bắt đầu"
-            type="datetime-local"
-            value={form.starts_at}
-            onChange={(v) => setForm({ ...form, starts_at: v })}
-          />
-          <Input
-            label="Kết thúc"
-            type="datetime-local"
-            value={form.ends_at}
-            onChange={(v) => setForm({ ...form, ends_at: v })}
-          />
-          <button type="submit" className="md:col-span-2 rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white">
+          <Input label="Bắt đầu" type="datetime-local" value={form.starts_at} onChange={(v) => setForm({ ...form, starts_at: v })} />
+          <Input label="Kết thúc" type="datetime-local" value={form.ends_at} onChange={(v) => setForm({ ...form, ends_at: v })} />
+          <button type="submit" className="rounded-md bg-vju-500 px-4 py-2 text-sm font-semibold text-white md:col-span-2">
             Tạo
           </button>
         </form>
@@ -137,41 +111,46 @@ function ClassesInner() {
       ) : (
         <ul className="space-y-3">
           {classes.map((c) => (
-            <li key={c.id} className="surface flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="font-mono text-xs uppercase text-slate-500">{c.code}</p>
-                <p className="text-base font-semibold">{c.name}</p>
-                <p className="text-xs text-slate-500">
-                  {c.semester} · {new Date(c.starts_at).toLocaleDateString("vi-VN")} →{" "}
-                  {new Date(c.ends_at).toLocaleDateString("vi-VN")}
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800">
-                <Upload className="h-3 w-3" />
-                Enroll CSV
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && uploadCsv(c.id, e.target.files[0])}
-                />
-              </label>
+            <li key={c.id}>
+              <Link
+                href={`/admin/classes/${c.id}`}
+                className="surface flex items-center justify-between gap-3 p-5 transition hover:border-vju-300 hover:shadow-md dark:hover:border-vju-700"
+              >
+                <div>
+                  <p className="font-mono text-xs uppercase text-slate-500">{c.code}</p>
+                  <p className="text-base font-semibold">{c.name}</p>
+                  <p className="text-xs text-slate-500">
+                    {c.semester} · {new Date(c.starts_at).toLocaleDateString("vi-VN")} →{" "}
+                    {new Date(c.ends_at).toLocaleDateString("vi-VN")}
+                  </p>
+                </div>
+                <span className="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-vju-600 dark:text-vju-300">
+                  Quản lý <ArrowRight className="h-4 w-4" />
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
       )}
-
-      <p className="text-xs text-slate-500">
-        ⓘ CSV format: <code>email,full_name,student_code</code> — header optional. Email phải{" "}
-        <code>@st.vju.ac.vn</code> hoặc <code>@vju.ac.vn</code>; user mới sẽ tự tạo.
-      </p>
     </div>
   );
 }
 
 function Input({
-  label, value, onChange, type = "text", placeholder, className = "",
-}: { label: string; value: string; onChange: (v: string) => void; type?: string; placeholder?: string; className?: string }) {
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  className = "",
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  className?: string;
+}) {
   return (
     <label className={`block text-xs font-semibold text-slate-600 dark:text-slate-400 ${className}`}>
       {label}

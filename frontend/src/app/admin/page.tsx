@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Cpu, Users, ListChecks, Activity, Bell, Settings as SettingsIcon } from "lucide-react";
+import { Cpu, Users, ListChecks, Activity, Bell, CalendarCheck, Settings as SettingsIcon } from "lucide-react";
 
 import { AuthGate } from "@/components/AuthGate";
 import { useUser } from "@/lib/auth";
@@ -48,6 +48,14 @@ const TILES: readonly Tile[] = [
     desc: "Duyệt yêu cầu reset kit từ SV — kích plug power-cycle",
     icon: <Bell className="h-6 w-6" />,
     color: "from-orange-500 to-rose-600",
+    roles: ["admin", "lecturer"],
+  },
+  {
+    href: "/admin/requests",
+    title: "Duyệt đề xuất",
+    desc: "Duyệt yêu cầu dùng kit ngoài lịch tuần của sinh viên",
+    icon: <CalendarCheck className="h-6 w-6" />,
+    color: "from-sky-500 to-indigo-600",
     roles: ["admin", "lecturer"],
   },
   {
