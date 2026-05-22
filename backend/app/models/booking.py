@@ -58,8 +58,20 @@ class Booking(Base, TimestampMixin):
         index=True,
     )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # M6 — ad-hoc request + approval lifecycle (pending_approval → scheduled / rejected)
+    request_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    planned_slot_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("planned_slots.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
-    user: Mapped[User] = relationship(back_populates="bookings")
+    user: Mapped[User] = relationship(back_populates="bookings", foreign_keys=[user_id])
     device: Mapped[Device] = relationship(back_populates="bookings")
     class_: Mapped[Class | None] = relationship(back_populates="bookings", foreign_keys=[class_id])
     special_access: Mapped[SpecialAccess | None] = relationship(

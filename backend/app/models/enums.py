@@ -36,11 +36,13 @@ class BookingGrantedVia(StrEnum):
 
 
 class BookingStatus(StrEnum):
+    PENDING_APPROVAL = "pending_approval"  # M6: ad-hoc request awaiting lecturer
     SCHEDULED = "scheduled"
     ACTIVE = "active"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     NO_SHOW = "no_show"
+    REJECTED = "rejected"  # M6: ad-hoc request denied by lecturer
 
 
 class SessionStatus(StrEnum):
@@ -70,3 +72,14 @@ class DevicePowerState(StrEnum):
     ON = "on"
     OFF = "off"
     RESETTING = "resetting"
+
+
+class TimeSlot(StrEnum):
+    """M6: fixed daily usage slots for the weekly group schedule.
+
+    Display hours: morning 08:00–12:00, afternoon 13:00–17:00,
+    evening 18:00–22:00 (see app.core.config TIME_SLOT_* settings).
+    """
+    MORNING = "morning"
+    AFTERNOON = "afternoon"
+    EVENING = "evening"
