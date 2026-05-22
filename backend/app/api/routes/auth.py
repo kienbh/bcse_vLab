@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import (
     clear_auth_cookies,
@@ -125,6 +126,63 @@ async def me(user: User = Depends(get_current_user)) -> dict[str, Any]:
 async def logout(response: Response) -> dict[str, str]:
     clear_auth_cookies(response)
     return {"status": "logged_out"}
+
+
+# -------- dev-mode quick login -----------------------------------------------
+# One-click sign-in as a fixed test account per role, for kiểm thử dashboard.
+# Entirely gated by settings.DEV_LOGIN_ENABLED — when off the endpoints 404 and
+# the only way in is the normal whitelist email+password login.
+_DEV_LOGIN_ACCOUNTS = {
+    "admin": "admin@vju.ac.vn",
+    "lecturer": "hung.le@vju.ac.vn",
+    "student": "sv01@st.vju.ac.vn",
+}
+
+
+@router.get("/dev-status")
+async def dev_status() -> dict[str, Any]:
+    """Whether the dev-mode quick-login buttons should be shown on /login."""
+    return {"enabled": get_settings().DEV_LOGIN_ENABLED}
+
+
+@router.post("/dev-login/{role}")
+async def dev_login(
+    role: str,
+    response: Response,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """One-click login as the fixed test account for `role` — dev/testing only."""
+    if not get_settings().DEV_LOGIN_ENABLED:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "DEV_LOGIN_DISABLED"}
+        )
+    email = _DEV_LOGIN_ACCOUNTS.get(role)
+    if email is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "BAD_ROLE", "allowed": list(_DEV_LOGIN_ACCOUNTS)},
+        )
+    user = await auth_service.find_by_email(db, email)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"code": "DEV_ACCOUNT_MISSING", "email": email},
+        )
+    # A dev test account should land straight on its dashboard.
+    if user.must_change_password:
+        user.must_change_password = False
+
+    access = issue_access_token(sub=str(user.id), role=user.role.value)
+    refresh = issue_refresh_token(sub=str(user.id))
+    set_auth_cookies(response, access=access, refresh=refresh)
+
+    await audit_log(
+        db, actor=user, action="auth.dev_login",
+        details={"role": user.role.value}, request=request,
+    )
+    await db.commit()
+    return _user_dict(user)
 
 
 # -------- admin: create / list / reset / role-change users -------------------

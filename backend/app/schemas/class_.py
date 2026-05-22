@@ -66,6 +66,20 @@ class AssignmentCreate(BaseModel):
     per_student_max_advance_days: int = Field(7, ge=1, le=90)
 
 
+class AssignmentUpdate(BaseModel):
+    """Editable fields of an existing class-device assignment.
+
+    device_id / valid_from are immutable (they form the unique key) — to
+    change those, revoke the assignment and create a new one.
+    """
+
+    valid_to: datetime | None = None
+    allowed_time_windows: list[TimeWindow] | None = None
+    per_student_weekly_hours: int | None = Field(None, ge=1, le=168)
+    per_student_max_concurrent: int | None = Field(None, ge=1, le=5)
+    per_student_max_advance_days: int | None = Field(None, ge=1, le=90)
+
+
 class ClassDeviceAssignmentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

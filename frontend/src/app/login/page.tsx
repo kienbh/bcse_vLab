@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogIn, ShieldCheck, Loader2, AlertCircle } from "lucide-react";
+import { LogIn, ShieldCheck, Loader2, AlertCircle, Wrench } from "lucide-react";
 import { useEffect, useState } from "react";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +21,36 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [devEnabled, setDevEnabled] = useState(false);
+  const [devBusy, setDevBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/auth/dev-status`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((d) => setDevEnabled(Boolean(d.enabled)))
+      .catch(() => setDevEnabled(false));
+  }, []);
+
+  const devLogin = async (role: "admin" | "lecturer" | "student") => {
+    setDevBusy(role);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/auth/dev-login/${role}`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        setError(`Dev-login lỗi: ${e?.detail?.code ?? r.status}`);
+        setDevBusy(null);
+        return;
+      }
+      router.replace(next);
+    } catch (e) {
+      setError(`Lỗi mạng: ${e}`);
+      setDevBusy(null);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +146,35 @@ export default function LoginPage() {
           Chưa có tài khoản? Liên hệ admin (<code>admin@vju.ac.vn</code>) để được cấp.
         </p>
       </form>
+
+      {devEnabled && (
+        <div className="surface w-full space-y-3 border-amber-300 bg-amber-50/60 p-5 dark:border-amber-800 dark:bg-amber-950/20">
+          <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+            <Wrench className="h-4 w-4" />
+            Chế độ Dev — đăng nhập nhanh để kiểm thử
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+            Click để vào thẳng dashboard theo từng vai trò. Tắt khi chạy thật
+            (DEV_LOGIN_ENABLED=false) — khi đó chỉ còn login whitelist.
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {(["admin", "lecturer", "student"] as const).map((role) => (
+              <button
+                key={role}
+                type="button"
+                onClick={() => devLogin(role)}
+                disabled={devBusy !== null}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-semibold capitalize text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-amber-800 dark:bg-slate-900 dark:text-amber-300 dark:hover:bg-slate-800"
+              >
+                {devBusy === role ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {role === "lecturer" ? "Giảng viên" : role === "student" ? "Sinh viên" : "Admin"}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Link
         href="/"

@@ -24,6 +24,7 @@ from app.models import (
 from app.models.quota import UserQuota
 from app.schemas import (
     AssignmentCreate,
+    AssignmentUpdate,
     ClassCreate,
     ClassDeviceAssignmentOut,
     ClassOut,
@@ -299,6 +300,49 @@ async def revoke_assignment(
     return {"status": "revoked"}
 
 
+@router.patch(
+    "/{class_id}/devices/{assignment_id}",
+    response_model=ClassDeviceAssignmentOut,
+)
+async def update_assignment(
+    class_id: UUID,
+    assignment_id: UUID,
+    payload: AssignmentUpdate,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> ClassDeviceAssignment:
+    """Edit quota/time-window/valid_to of an active assignment."""
+    cls = await _get_class_or_403(class_id, user, db, write=True)
+    cda = (
+        await db.execute(
+            select(ClassDeviceAssignment).where(
+                ClassDeviceAssignment.id == assignment_id,
+                ClassDeviceAssignment.class_id == cls.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if cda is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "ASSIGNMENT_NOT_FOUND"})
+    if cda.revoked_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail={"code": "ASSIGNMENT_REVOKED"}
+        )
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("allowed_time_windows") is not None:
+        cda.allowed_time_windows = [w.model_dump() for w in payload.allowed_time_windows]
+    for field in (
+        "valid_to",
+        "per_student_weekly_hours",
+        "per_student_max_concurrent",
+        "per_student_max_advance_days",
+    ):
+        if data.get(field) is not None:
+            setattr(cda, field, data[field])
+    await db.commit()
+    await db.refresh(cda)
+    return cda
+
+
 # -------- special access ------------------------------------------------------
 
 @teacher_router.post(
@@ -336,3 +380,66 @@ async def grant_special_access(
     await db.commit()
     await db.refresh(sa)
     return sa
+
+
+@teacher_router.get("/special-access")
+async def list_special_access(
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List special-access grants — admin sees all, lecturer sees own grants.
+
+    Returns enriched rows (user email/name + device name) so the admin UI can
+    render them without extra lookups.
+    """
+    q = (
+        select(SpecialAccess, User, Device)
+        .join(User, User.id == SpecialAccess.user_id)
+        .join(Device, Device.id == SpecialAccess.device_id)
+        .order_by(SpecialAccess.granted_at.desc())
+    )
+    if user.role != UserRole.ADMIN:
+        q = q.where(SpecialAccess.granted_by == user.id)
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "id": str(sa.id),
+            "user_id": str(sa.user_id),
+            "user_email": owner.email,
+            "user_name": owner.full_name,
+            "device_id": str(sa.device_id),
+            "device_name": device.name,
+            "valid_from": sa.valid_from.isoformat(),
+            "valid_to": sa.valid_to.isoformat(),
+            "allowed_time_windows": sa.allowed_time_windows,
+            "weekly_hours_limit": sa.weekly_hours_limit,
+            "reason": sa.reason,
+            "granted_at": sa.granted_at.isoformat(),
+            "revoked_at": sa.revoked_at.isoformat() if sa.revoked_at else None,
+        }
+        for sa, owner, device in rows
+    ]
+
+
+@teacher_router.delete("/special-access/{access_id}", status_code=status.HTTP_200_OK)
+async def revoke_special_access(
+    access_id: UUID,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Revoke a special-access grant — lecturer can revoke own grants, admin any."""
+    sa = (
+        await db.execute(select(SpecialAccess).where(SpecialAccess.id == access_id))
+    ).scalar_one_or_none()
+    if sa is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "ACCESS_NOT_FOUND"})
+    if user.role != UserRole.ADMIN and sa.granted_by != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail={"code": "NOT_YOUR_GRANT"})
+    if sa.revoked_at is not None:
+        return {"status": "already_revoked"}
+    from datetime import datetime, timezone
+
+    sa.revoked_at = datetime.now(timezone.utc)
+    sa.revoked_by = user.id
+    await db.commit()
+    return {"status": "revoked"}

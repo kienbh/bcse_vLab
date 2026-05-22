@@ -2,6 +2,7 @@
 from app.schemas.booking import BookingCreate, BookingOut
 from app.schemas.class_ import (
     AssignmentCreate,
+    AssignmentUpdate,
     ClassCreate,
     ClassDeviceAssignmentOut,
     ClassOut,
@@ -24,6 +25,7 @@ __all__ = [
     "EnrollmentOut",
     "EnrollmentBulkResult",
     "AssignmentCreate",
+    "AssignmentUpdate",
     "ClassDeviceAssignmentOut",
     "SpecialAccessCreate",
     "SpecialAccessOut",
