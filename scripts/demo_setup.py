@@ -227,7 +227,7 @@ def smoke_demo() -> None:
     log(f"  live-status → {st} {body[:160]}")
 
     start = datetime.now(timezone.utc) + timedelta(minutes=1)
-    end = start + timedelta(hours=2)
+    end = start + timedelta(minutes=15)
     st, body = _req(
         "POST", "/api/bookings", s,
         {
@@ -274,6 +274,15 @@ def smoke_demo() -> None:
             log(f"  ! ephemeral SSH ran but no marker: {out[:200]}")
     except Exception as e:
         log(f"  ! ephemeral key SSH test failed (mocked={sess['mocked']}): {e}")
+
+    # Clean up — a smoke test must not leave a live booking/session behind,
+    # otherwise it occupies the device and real users hit "slot taken".
+    sid = sess.get("session_id")
+    if sid:
+        st, _ = _req("POST", f"/api/sessions/{sid}/end", s)
+        log(f"  cleanup: end session → {st}")
+    st, _ = _req("POST", f"/api/bookings/{booking['id']}/cancel", s)
+    log(f"  cleanup: cancel booking → {st}")
 
 
 def main() -> int:
