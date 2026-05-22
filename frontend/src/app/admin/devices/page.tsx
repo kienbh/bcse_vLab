@@ -245,6 +245,7 @@ function DevicesAdminInner() {
               ["jetson_orin", "Jetson Orin"],
               ["rpi4", "Raspberry Pi 4"],
               ["rpi5", "Raspberry Pi 5"],
+              ["vps", "VPS (máy chủ ảo)"],
             ]}
           />
           <Input label="Model" value={form.model} onChange={(v) => setForm({ ...form, model: v })} />

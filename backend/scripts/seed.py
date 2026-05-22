@@ -191,6 +191,22 @@ async def main() -> int:
             capabilities={"gpio": True, "i2c": True, "pcie": True},
         )
 
+        print("\n=== VPS thật — node i7 Proxmox 192.168.2.210 (routable từ SV14) ===")
+        for n, ip in ((21, 211), (22, 212), (23, 213)):
+            await upsert_device(
+                db,
+                name=f"sv{n}",
+                device_type=DeviceType.VPS,
+                model="VPS Ubuntu 24.04 — 4GB RAM / 2 vCPU",
+                internal_ip=f"192.168.2.{ip}",
+                capabilities={
+                    "os": "Ubuntu 24.04",
+                    "ram_gb": 4,
+                    "vcpu": 2,
+                    "disk_gb": 20,
+                },
+            )
+
         await db.commit()
         print("\n=== Done ===")
         print(f"  Default password: {DEFAULT_PASSWORD} (MUST change on first login)")

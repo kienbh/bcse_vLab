@@ -15,6 +15,7 @@ class DeviceType(StrEnum):
     JETSON_ORIN = "jetson_orin"
     RPI4 = "rpi4"
     RPI5 = "rpi5"
+    VPS = "vps"  # máy chủ ảo Proxmox (BCSE i7 node) — see migration 0008
 
 
 class DeviceStatus(StrEnum):

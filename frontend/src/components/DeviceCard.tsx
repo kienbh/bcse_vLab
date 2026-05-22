@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
-export type DeviceFamily = "fpga" | "jetson" | "rpi";
+export type DeviceFamily = "fpga" | "jetson" | "rpi" | "vps";
 
 export type PowerState = "on" | "off" | "resetting";
 
@@ -27,7 +27,8 @@ export type Device = {
     | "jetson_nano"
     | "jetson_orin"
     | "rpi4"
-    | "rpi5";
+    | "rpi5"
+    | "vps";
   model: string;
   status: "available" | "in_use" | "maintenance" | "offline";
   power_state: PowerState;
@@ -176,6 +177,18 @@ const THEMES: Record<DeviceFamily, FamilyTheme> = {
     accent: "from-rose-500 to-pink-700",
     available:
       "from-rose-400 via-rose-500 to-pink-600 shadow-rose-500/30",
+    occupied:
+      "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
+    offline:
+      "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
+    maintenance:
+      "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
+  },
+  vps: {
+    badge: "VPS",
+    accent: "from-indigo-500 to-indigo-700",
+    available:
+      "from-indigo-400 via-indigo-500 to-indigo-700 shadow-indigo-500/30",
     occupied:
       "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
     offline:

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Cog, Cpu, Inbox, Loader2, LogIn, RefreshCw, Zap } from "lucide-react";
+import { Cog, Cpu, Inbox, Loader2, LogIn, RefreshCw, Server, Zap } from "lucide-react";
 
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
@@ -15,6 +15,7 @@ const FAMILY_TO_TYPES: Record<DeviceFamily, Device["device_type"][]> = {
   fpga: ["fpga_kv260"],
   jetson: ["jetson_nano", "jetson_orin"],
   rpi: ["rpi4", "rpi5"],
+  vps: ["vps"],
 };
 
 const FAMILY_META: Record<DeviceFamily, {
@@ -44,6 +45,14 @@ const FAMILY_META: Record<DeviceFamily, {
     icon: <Zap className="h-6 w-6" />,
     gradient: "from-rose-500 to-pink-700",
     cameraLabel: "Khu Raspberry Pi — Lab Hòa Lạc",
+  },
+  vps: {
+    title: "VPS — Máy chủ ảo",
+    subtitle:
+      "Máy ảo Ubuntu trên Proxmox — chạy back-end, server-side, API. Toàn quyền SSH.",
+    icon: <Server className="h-6 w-6" />,
+    gradient: "from-indigo-500 to-indigo-700",
+    cameraLabel: "Khu máy chủ ảo — Node i7 Proxmox",
   },
 };
 
@@ -299,6 +308,7 @@ function FamilyTabs({ current }: { current: DeviceFamily }) {
     { key: "fpga", label: "FPGA" },
     { key: "jetson", label: "Jetson" },
     { key: "rpi", label: "Pi" },
+    { key: "vps", label: "VPS" },
   ];
   return (
     <div className="inline-flex rounded-md border border-slate-300 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
