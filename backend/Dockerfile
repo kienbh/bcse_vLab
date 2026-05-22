@@ -19,6 +19,7 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY app /app/app
 COPY migrations /app/migrations
+COPY scripts /app/scripts
 COPY alembic.ini /app/alembic.ini
 
 RUN useradd -m -u 1000 appuser \

@@ -81,14 +81,25 @@ async def provision(
 
     settings = get_settings()
     session_tag = f"sess-{uuid4().hex[:12]}"
-    result = await ssh_manager.provision_session(
-        device_internal_ip=str(device.internal_ip),
-        device_ssh_port=device.ssh_port,
-        device_ssh_user=device.ssh_user,
-        backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
-        session_tag=session_tag,
-        expires_at_iso=booking.end_time.isoformat(),
-    )
+    try:
+        result = await ssh_manager.provision_session(
+            device_internal_ip=str(device.internal_ip),
+            device_ssh_port=device.ssh_port,
+            device_ssh_user=device.ssh_user,
+            backend_admin_key_path=settings.BACKEND_SSH_KEY_PATH,
+            session_tag=session_tag,
+            expires_at_iso=booking.end_time.isoformat(),
+        )
+    except ssh_manager.DeviceUnreachable as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "DEVICE_UNREACHABLE",
+                "message": "Thiết bị hiện không phản hồi (đang tắt, khởi động lại "
+                "hoặc mất kết nối mạng). Vui lòng thử lại sau ít phút.",
+                "device": device.name,
+            },
+        ) from exc
 
     sess = DBSession(
         booking_id=booking.id,
@@ -126,6 +137,56 @@ async def provision(
         "wetty_url": f"/term/?host={device.internal_ip}&port={device.ssh_port}&user={device.ssh_user}",
         "expires_at": booking.end_time.isoformat(),
         "mocked": result.mocked,
+    }
+
+
+@router.get("/by-booking/{booking_id}")
+async def get_session_by_booking(
+    booking_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Connect info for a booking that already has a session.
+
+    /provision shows the private key once then discards it; this lets the UI
+    re-open the web terminal for an existing session instead of erroring with
+    SESSION_EXISTS. No private key is returned (wetty uses the portal-admin key).
+    """
+    booking = (
+        await db.execute(select(Booking).where(Booking.id == booking_id))
+    ).scalar_one_or_none()
+    if booking is None or (
+        booking.user_id != user.id
+        and user.role not in (UserRole.ADMIN, UserRole.LECTURER)
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "BOOKING_NOT_FOUND"}
+        )
+    sess = (
+        await db.execute(select(DBSession).where(DBSession.booking_id == booking_id))
+    ).scalar_one_or_none()
+    if sess is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "SESSION_NOT_FOUND"}
+        )
+    device = (
+        await db.execute(select(Device).where(Device.id == booking.device_id))
+    ).scalar_one()
+    return {
+        "session_id": str(sess.id),
+        "booking_id": str(booking.id),
+        "ssh_user": device.ssh_user,
+        "ssh_host": str(device.internal_ip),
+        "ssh_port": device.ssh_port,
+        "fingerprint": sess.ssh_fingerprint,
+        "private_key": "",  # shown only once at provision time
+        "wetty_url": (
+            f"/term/?host={device.internal_ip}"
+            f"&port={device.ssh_port}&user={device.ssh_user}"
+        ),
+        "expires_at": booking.end_time.isoformat(),
+        "mocked": False,
+        "resumed": True,
     }
 
 

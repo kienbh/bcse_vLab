@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Cpu, Calendar, LayoutDashboard, Globe, Moon, Sun, Menu, X } from "lucide-react";
+import { Cpu, Calendar, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap } from "lucide-react";
 
 import { UserMenu } from "@/components/UserMenu";
 import type { Locale, MessageKey } from "@/lib/i18n";
@@ -53,7 +53,9 @@ export function TopNav() {
 
   const items = [
     { href: "/", label: tr("nav.home"), icon: null },
-    { href: "/devices", label: tr("nav.devices"), icon: <Cpu className="h-4 w-4" /> },
+    { href: "/devices/fpga", label: "FPGA", icon: <Cog className="h-4 w-4" /> },
+    { href: "/devices/jetson", label: "Jetson", icon: <Cpu className="h-4 w-4" /> },
+    { href: "/devices/rpi", label: "Pi", icon: <Zap className="h-4 w-4" /> },
     { href: "/bookings", label: tr("nav.bookings"), icon: <Calendar className="h-4 w-4" /> },
     { href: "/dashboard", label: tr("nav.dashboard"), icon: <LayoutDashboard className="h-4 w-4" /> },
   ];

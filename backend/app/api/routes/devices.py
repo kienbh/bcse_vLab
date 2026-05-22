@@ -1,6 +1,7 @@
 """Device CRUD — admin write, all users read (filtered to their accessible set later)."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -224,6 +225,112 @@ async def suggest_free_slots(
         "device_id": str(device_id),
         "duration_hours": duration_hours,
         "suggestions": suggestions,
+    }
+
+
+async def _tcp_ping(host: str, port: int, timeout: float = 1.5) -> tuple[bool, float | None]:
+    """Open a TCP connection and immediately close — measure latency in ms."""
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(host, port), timeout=timeout
+        )
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True, (loop.time() - start) * 1000.0
+    except (asyncio.TimeoutError, OSError):
+        return False, None
+
+
+@router.get("/{device_id}/live-status")
+async def live_status(
+    device_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Real-time device status for the dashboard card.
+
+    Combines:
+      - TCP probe of the device's SSH port (proves reachability + measures latency)
+      - DB lookup of any in-progress booking (the 'current owner')
+      - Caller-scoped `is_my_booking` flag so the UI can show the reset button only
+        to the active booker
+
+    Cheap enough to poll every 5-10s from the browser.
+    """
+    device = (
+        await db.execute(select(Device).where(Device.id == device_id))
+    ).scalar_one_or_none()
+    if device is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "DEVICE_NOT_FOUND"})
+
+    reachable, latency_ms = await _tcp_ping(str(device.internal_ip), device.ssh_port)
+
+    now = datetime.now(timezone.utc)
+    active_booking_q = (
+        select(Booking, User)
+        .join(User, User.id == Booking.user_id)
+        .where(
+            Booking.device_id == device_id,
+            Booking.status.in_([BookingStatus.SCHEDULED, BookingStatus.ACTIVE]),
+            Booking.start_time <= now,
+            Booking.end_time > now,
+        )
+        .order_by(Booking.start_time.desc())
+        .limit(1)
+    )
+    row = (await db.execute(active_booking_q)).first()
+    current = None
+    is_mine = False
+    if row is not None:
+        booking, owner = row
+        is_mine = owner.id == user.id
+        current = {
+            "booking_id": str(booking.id),
+            "user_name": owner.full_name,
+            "user_email": owner.email if (is_mine or user.role.value in ("admin", "lecturer", "ta")) else None,
+            "student_code": owner.student_code if (is_mine or user.role.value in ("admin", "lecturer", "ta")) else None,
+            "start_time": booking.start_time.isoformat(),
+            "end_time": booking.end_time.isoformat(),
+        }
+
+    # Find next-upcoming booking so the card can show "next slot starts at X"
+    next_booking_q = (
+        select(Booking.start_time, Booking.end_time)
+        .where(
+            Booking.device_id == device_id,
+            Booking.status.in_([BookingStatus.SCHEDULED, BookingStatus.ACTIVE]),
+            Booking.start_time > now,
+        )
+        .order_by(Booking.start_time)
+        .limit(1)
+    )
+    next_row = (await db.execute(next_booking_q)).first()
+    next_slot = None
+    if next_row is not None:
+        next_slot = {"start_time": next_row[0].isoformat(), "end_time": next_row[1].isoformat()}
+
+    # Has the device been mapped to a smart plug? (so UI can enable the reset button)
+    has_plug = (
+        await db.execute(select(PlugMapping.device_id).where(PlugMapping.device_id == device_id))
+    ).scalar_one_or_none() is not None
+
+    return {
+        "device_id": str(device_id),
+        "checked_at": now.isoformat(),
+        "ssh_host": str(device.internal_ip),
+        "ssh_port": device.ssh_port,
+        "reachable": reachable,
+        "latency_ms": round(latency_ms, 1) if latency_ms is not None else None,
+        "db_status": device.status.value,
+        "current_booking": current,
+        "is_my_booking": is_mine,
+        "next_booking": next_slot,
+        "has_plug": has_plug,
     }
 
 

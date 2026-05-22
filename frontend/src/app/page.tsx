@@ -11,6 +11,7 @@ const FEATURES = [
     icon: <Cog className="h-6 w-6" />,
     color: "from-vju-500 to-vju-700",
     count: "9 KV260",
+    href: "/devices/fpga",
   },
   {
     titleKey: "feat.jetson.title",
@@ -18,6 +19,7 @@ const FEATURES = [
     icon: <Cpu className="h-6 w-6" />,
     color: "from-emerald-500 to-emerald-700",
     count: "Nano + Orin",
+    href: "/devices/jetson",
   },
   {
     titleKey: "feat.rpi.title",
@@ -25,6 +27,7 @@ const FEATURES = [
     icon: <Zap className="h-6 w-6" />,
     color: "from-rose-500 to-rose-700",
     count: "Pi 4 + Pi 5",
+    href: "/devices/rpi",
   },
 ] as const;
 
@@ -137,9 +140,10 @@ export default function HomePage() {
       <section className="space-y-6 animate-slide-up">
         <div className="grid gap-4 md:grid-cols-3">
           {FEATURES.map((f, i) => (
-            <div
+            <Link
               key={i}
-              className="surface group relative space-y-3 overflow-hidden p-6 transition hover:shadow-md"
+              href={f.href}
+              className="surface group relative space-y-3 overflow-hidden p-6 transition hover:-translate-y-0.5 hover:shadow-md"
             >
               <div
                 className={`inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${f.color} text-white shadow-md`}
@@ -152,10 +156,15 @@ export default function HomePage() {
               <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
                 <L k={f.descKey} />
               </p>
-              <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
-                {f.count}
-              </span>
-            </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
+                  {f.count}
+                </span>
+                <span className="text-xs font-semibold text-vju-500 transition group-hover:translate-x-0.5">
+                  Mở dashboard →
+                </span>
+              </div>
+            </Link>
           ))}
         </div>
       </section>

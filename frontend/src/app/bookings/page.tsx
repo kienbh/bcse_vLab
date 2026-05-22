@@ -89,10 +89,19 @@ function BookingsInner() {
       const data = await r.json();
       try { await navigator.clipboard?.writeText(data.private_key); } catch { /* */ }
       window.open(data.wetty_url, "_blank");
-    } else {
-      const e = await r.json().catch(() => ({}));
-      alert(`Không mở được session: ${JSON.stringify(e)}`);
+      return;
     }
+    const e = await r.json().catch(() => ({}));
+    const code = e?.detail?.code ?? "ERROR";
+    if (code === "SESSION_EXISTS") {
+      // Already provisioned — re-open the existing web terminal.
+      const r2 = await fetch(`${API}/sessions/by-booking/${id}`, { credentials: "include" });
+      if (r2.ok) {
+        window.open((await r2.json()).wetty_url, "_blank");
+        return;
+      }
+    }
+    alert(`Không mở được session: ${code}`);
   };
 
   const fmt = (iso: string) =>

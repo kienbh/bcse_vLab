@@ -64,9 +64,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CORS_ALLOWED_ORIGINS: '["https://${PUBLIC_HOSTNAME}"]'
+      # Real SSH provisioning into the same-LAN lab KV260 (192.168.2.93).
+      # Overrides .env.prod defaults so we don't touch secret fields.
+      MOCK_SSH_DEVICES: "false"
+      BACKEND_SSH_KEY_PATH: /app/ssh-keys/portal_admin_ed25519
     volumes:
       - backend_uploads:/app/uploads
-      - backend_ssh_keys:/app/ssh-keys
+      - ./secrets:/app/ssh-keys:ro
     networks:
       - internal
       - lan
@@ -98,9 +102,11 @@ services:
       REDIS_HOST: redis
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      MOCK_SSH_DEVICES: "false"
+      BACKEND_SSH_KEY_PATH: /app/ssh-keys/portal_admin_ed25519
     volumes:
       - backend_uploads:/app/uploads
-      - backend_ssh_keys:/app/ssh-keys
+      - ./secrets:/app/ssh-keys:ro
     networks:
       - internal
       - lan
@@ -136,7 +142,20 @@ services:
     mem_limit: 128m
     mem_reservation: 64m
     mem_swappiness: 10
-    command: --base /term/ --port 3000 --allow-iframe true
+    # Demo wiring: web terminal SSHes into the real lab KV260 using the shared
+    # portal-admin key. Single-device for now; multi-device wetty routing is
+    # future work (see decisions.md ADR for M4).
+    command: >-
+      --base /term/
+      --port 3000
+      --allow-iframe true
+      --ssh-host 192.168.2.93
+      --ssh-port 22
+      --ssh-user ubuntu
+      --ssh-auth publickey
+      --ssh-key /ssh/portal_admin_ed25519
+    volumes:
+      - ./secrets:/ssh:ro
     networks:
       - internal
       - lan
@@ -154,4 +173,3 @@ volumes:
   postgres_data:
   redis_data:
   backend_uploads:
-  backend_ssh_keys:

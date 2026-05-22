@@ -21,11 +21,17 @@ import asyncio
 import base64
 import hashlib
 import os
+import shlex
 from dataclasses import dataclass
 
 import asyncssh
 
 from app.core.config import get_settings
+
+
+class DeviceUnreachable(Exception):
+    """Raised when the backend cannot SSH to the target device (powered off,
+    rebooting, off the LAN). Callers map this to a clean HTTP 503."""
 
 
 @dataclass
@@ -96,17 +102,24 @@ async def provision_session(
     # Real path: SSH to device + append to authorized_keys
     cmd = (
         "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
-        f"echo {asyncssh.misc.shell_quote(public_line)} >> ~/.ssh/authorized_keys && "
+        f"echo {shlex.quote(public_line)} >> ~/.ssh/authorized_keys && "
         "chmod 600 ~/.ssh/authorized_keys"
     )
-    async with asyncssh.connect(
-        device_internal_ip,
-        port=device_ssh_port,
-        username=device_ssh_user,
-        client_keys=[backend_admin_key_path],
-        known_hosts=None,
-    ) as conn:
-        result = await conn.run(cmd, check=True)
+    try:
+        async with asyncssh.connect(
+            device_internal_ip,
+            port=device_ssh_port,
+            username=device_ssh_user,
+            client_keys=[backend_admin_key_path],
+            known_hosts=None,
+            connect_timeout=10,
+        ) as conn:
+            await conn.run(cmd, check=True)
+    except (OSError, asyncio.TimeoutError, asyncssh.Error) as exc:
+        raise DeviceUnreachable(
+            f"SSH to {device_internal_ip}:{device_ssh_port} failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
     return ProvisionResult(
         private_key_pem=private_pem,
         public_key_line=public_line,
@@ -131,7 +144,7 @@ async def revoke_session(
     # Use sed -i to delete lines containing the unique tag
     cmd = (
         "test -f ~/.ssh/authorized_keys && "
-        f"sed -i.bak '/session={asyncssh.misc.shell_quote(session_tag)}/d' ~/.ssh/authorized_keys"
+        f"sed -i.bak '/session={shlex.quote(session_tag)}/d' ~/.ssh/authorized_keys"
     )
     try:
         async with asyncssh.connect(

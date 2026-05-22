@@ -48,6 +48,7 @@ function familyOf(t: Device["device_type"]): "FPGA" | "Jetson" | "RPi" {
   return "RPi";
 }
 
+
 function DevicesInner() {
   const locale = useLocaleListener();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -70,6 +71,32 @@ function DevicesInner() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
+      <div className="surface flex flex-wrap items-center justify-between gap-3 border-vju-200 bg-gradient-to-r from-vju-50 to-white p-4 dark:border-vju-900/40 dark:from-vju-900/20 dark:to-slate-950">
+        <p className="text-sm">
+          <span className="font-semibold">Dashboard tổng hợp.</span> Để có giao diện
+          chuyên cho từng loại kit, dùng:
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link
+            href="/devices/fpga"
+            className="inline-flex items-center gap-1 rounded-md bg-vju-500 px-3 py-1.5 font-semibold text-white hover:bg-vju-600"
+          >
+            <Cog className="h-3.5 w-3.5" /> FPGA
+          </Link>
+          <Link
+            href="/devices/jetson"
+            className="inline-flex items-center gap-1 rounded-md bg-emerald-500 px-3 py-1.5 font-semibold text-white hover:bg-emerald-600"
+          >
+            <Cpu className="h-3.5 w-3.5" /> Jetson
+          </Link>
+          <Link
+            href="/devices/rpi"
+            className="inline-flex items-center gap-1 rounded-md bg-rose-500 px-3 py-1.5 font-semibold text-white hover:bg-rose-600"
+          >
+            <Zap className="h-3.5 w-3.5" /> Raspberry Pi
+          </Link>
+        </div>
+      </div>
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
