@@ -60,6 +60,14 @@ class ResetRequestStatus(StrEnum):
     FAILED = "failed"          # approved + plug error
 
 
+class AccessRequestStatus(StrEnum):
+    """VPS access request lifecycle. Approved → SpecialAccess row created."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"   # student withdrew before decision
+
+
 class DevicePowerState(StrEnum):
     """ADR-0013 / M5.9: orthogonal to DeviceStatus. Reflects the smart plug
     state when the API works, or the admin's manual toggle when it doesn't

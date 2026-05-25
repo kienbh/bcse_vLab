@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Cpu, Calendar, CalendarDays, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap, Server } from "lucide-react";
+import { Cpu, Calendar, CalendarDays, KeyRound, LayoutDashboard, Globe, Moon, Sun, Menu, X, Cog, Zap, Server } from "lucide-react";
 
 import { ResetQueueBadge } from "@/components/ResetQueueBadge";
 import { UserMenu } from "@/components/UserMenu";
@@ -58,6 +58,7 @@ export function TopNav() {
     { href: "/devices/jetson", label: "Jetson", icon: <Cpu className="h-4 w-4" /> },
     { href: "/devices/rpi", label: "Pi", icon: <Zap className="h-4 w-4" /> },
     { href: "/devices/vps", label: "VPS", icon: <Server className="h-4 w-4" /> },
+    { href: "/vps-access", label: "Quyền VPS", icon: <KeyRound className="h-4 w-4" /> },
     { href: "/schedule", label: "Lịch nhóm", icon: <CalendarDays className="h-4 w-4" /> },
     { href: "/bookings", label: tr("nav.bookings"), icon: <Calendar className="h-4 w-4" /> },
     { href: "/dashboard", label: tr("nav.dashboard"), icon: <LayoutDashboard className="h-4 w-4" /> },

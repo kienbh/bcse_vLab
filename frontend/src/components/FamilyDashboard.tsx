@@ -160,6 +160,9 @@ function FamilyInner({
     data: SessionResult;
     bookingId: string;
   } | null>(null);
+  // VPS-only: which devices the current user has an ACTIVE long-running grant on.
+  // Keyed by device_id, value is the grant valid_to ISO so the card can show "còn N ngày".
+  const [vpsGrants, setVpsGrants] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -180,6 +183,19 @@ function FamilyInner({
         );
       setDevices(filtered);
       setError(null);
+
+      // VPS uses the long-running grant model instead of slot bookings —
+      // fetch the student's active grants so the card can show "Kết nối"
+      // (has grant) vs "Yêu cầu quyền" (no grant) instead of the slot picker.
+      if (family === "vps") {
+        const rg = await fetch(`${API}/vps-access/grants/mine?active_only=true`, {
+          credentials: "include",
+        });
+        if (rg.ok) {
+          const grants: { device_id: string; valid_to: string }[] = await rg.json();
+          setVpsGrants(new Map(grants.map((g) => [g.device_id, g.valid_to])));
+        }
+      }
     } catch (e) {
       setError(String(e));
     }
@@ -204,6 +220,30 @@ function FamilyInner({
       const code = e?.detail?.code ?? "ERROR";
       alert(`Không lấy được password: ${code}`);
     }
+  };
+
+  // VPS connect — backend auto-creates a booking spanning the SA window and
+  // mints the same kind of gateway session, so the SessionLaunchModal works
+  // identically to the FPGA/Jetson/Pi flow.
+  const connectVps = async (device: Device) => {
+    const r = await fetch(`${API}/vps-access/${device.id}/access`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (r.ok) {
+      const data = (await r.json()) as SessionResult;
+      setSession({ data, bookingId: data.booking_id });
+    } else {
+      const e = await r.json().catch(() => ({}));
+      const code = e?.detail?.code ?? "ERROR";
+      const hint = e?.detail?.hint ?? "";
+      alert(`Không kết nối được: ${code}${hint ? `\n${hint}` : ""}`);
+    }
+  };
+
+  // For VPS family: book button → /vps-access page so the student can submit a request.
+  const requestVps = () => {
+    window.location.href = "/vps-access";
   };
 
   return (
@@ -265,7 +305,13 @@ function FamilyInner({
           </p>
         </div>
       ) : (
-        renderByTier(devices, family, setPicked, connect)
+        renderByTier(
+          devices,
+          family,
+          family === "vps" ? (_d) => requestVps() : setPicked,
+          connect,
+          family === "vps" ? { vpsGrants, onVpsConnect: connectVps } : undefined,
+        )
       )}
 
       {picked && (
@@ -311,12 +357,23 @@ function renderByTier(
   family: DeviceFamily,
   onBook: (d: Device) => void,
   onConnect: (d: Device, bookingId: string) => void,
+  vpsExtras?: {
+    vpsGrants: Map<string, string>;
+    onVpsConnect: (d: Device) => void;
+  },
 ): React.ReactNode {
   const grid = (list: Device[]) => (
     <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
       {list.map((d) => (
         <li key={d.id}>
-          <DeviceCard device={d} family={family} onBook={onBook} onConnect={onConnect} />
+          <DeviceCard
+            device={d}
+            family={family}
+            onBook={onBook}
+            onConnect={onConnect}
+            vpsGrantExpiresAt={vpsExtras?.vpsGrants.get(d.id) ?? null}
+            onVpsConnect={vpsExtras?.onVpsConnect}
+          />
         </li>
       ))}
     </ul>

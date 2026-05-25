@@ -53,13 +53,15 @@ async def _engine():
         await conn.execute(__import__("sqlalchemy").text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-        # GIST EXCLUDE — recreate manually since SQLAlchemy doesn't model EXCLUDE
+        # GIST EXCLUDE — recreate manually since SQLAlchemy doesn't model EXCLUDE.
+        # The `AND NOT shared_resource` clause matches migration 0010 — VPS
+        # bookings (shared_resource=true) bypass the no-overlap rule.
         await conn.execute(__import__("sqlalchemy").text(
             """
             ALTER TABLE bookings ADD CONSTRAINT no_overlap EXCLUDE USING gist (
                 device_id WITH =,
                 tstzrange(start_time, end_time, '[)') WITH &&
-            ) WHERE (status IN ('scheduled','active'))
+            ) WHERE (status IN ('scheduled','active') AND NOT shared_resource)
             """
         ))
     yield engine
@@ -76,10 +78,10 @@ async def db(_engine) -> AsyncGenerator[AsyncSession, None]:
         from sqlalchemy import text
         async with _engine.begin() as conn:
             await conn.execute(text(
-                "TRUNCATE gateway_auth_log, gateway_sessions, bookings, sessions, "
-                "special_access, class_device_assignments, enrollments, classes, "
-                "plug_mappings, device_credentials, devices, user_quotas, audit_logs, "
-                "users RESTART IDENTITY CASCADE"
+                "TRUNCATE access_requests, gateway_auth_log, gateway_sessions, "
+                "bookings, sessions, special_access, class_device_assignments, "
+                "enrollments, classes, plug_mappings, device_credentials, devices, "
+                "user_quotas, audit_logs, users RESTART IDENTITY CASCADE"
             ))
 
 

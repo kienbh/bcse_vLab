@@ -215,9 +215,20 @@ export interface DeviceCardProps {
   family: DeviceFamily;
   onBook: (device: Device) => void;
   onConnect?: (device: Device, bookingId: string) => void;
+  /** VPS-only: ISO of the active grant's valid_to. Null = no active grant. */
+  vpsGrantExpiresAt?: string | null;
+  /** VPS-only: triggers POST /vps-access/{id}/access (grant-based, no slot). */
+  onVpsConnect?: (device: Device) => void;
 }
 
-export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProps) {
+export function DeviceCard({
+  device,
+  family,
+  onBook,
+  onConnect,
+  vpsGrantExpiresAt,
+  onVpsConnect,
+}: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -510,18 +521,49 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
 
         {/* Actions */}
         <div className="mt-1 flex flex-col gap-2">
-          {state === "available" && (
-            <button
-              type="button"
-              onClick={() => onBook(device)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
-            >
-              <Sparkles className="h-4 w-4" />
-              ĐẶT SLOT NGAY
-            </button>
+          {family === "vps" ? (
+            // VPS uses long-running grants, NOT slot bookings.
+            // Has active grant → "Mở terminal SSH" (gateway mint via /vps-access/{id}/access)
+            // No grant → "Yêu cầu quyền" → navigates to /vps-access page
+            vpsGrantExpiresAt ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onVpsConnect?.(device)}
+                  disabled={state === "maintenance" || state === "offline"}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-500 to-indigo-700 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 disabled:opacity-50"
+                >
+                  <Terminal className="h-4 w-4" />
+                  MỞ TERMINAL SSH
+                </button>
+                <p className="text-center text-[10px] text-slate-500">
+                  Quyền truy cập đến {new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}
+                </p>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onBook(device)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+              >
+                <Sparkles className="h-4 w-4" />
+                YÊU CẦU QUYỀN
+              </button>
+            )
+          ) : (
+            state === "available" && (
+              <button
+                type="button"
+                onClick={() => onBook(device)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+              >
+                <Sparkles className="h-4 w-4" />
+                ĐẶT SLOT NGAY
+              </button>
+            )
           )}
 
-          {state === "occupied" && !isOwner && (
+          {family !== "vps" && state === "occupied" && !isOwner && (
             <button
               type="button"
               disabled
@@ -531,7 +573,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </button>
           )}
 
-          {state === "occupied" && isOwner && (
+          {family !== "vps" && state === "occupied" && isOwner && (
             <>
               {onConnect && current && (
                 <button
@@ -564,7 +606,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </>
           )}
 
-          {state === "offline" && (
+          {family !== "vps" && state === "offline" && (
             <>
               <button
                 type="button"
@@ -596,7 +638,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </>
           )}
 
-          {state === "maintenance" && (
+          {family !== "vps" && state === "maintenance" && (
             <button
               type="button"
               disabled

@@ -1,4 +1,11 @@
 """Pydantic DTOs for API responses + requests."""
+from app.schemas.access import (
+    AccessRequestCreate,
+    AccessRequestDecide,
+    AccessRequestOut,
+    VpsGrantCreate,
+    VpsGrantOut,
+)
 from app.schemas.booking import BookingCreate, BookingOut
 from app.schemas.class_ import (
     AssignmentCreate,
@@ -35,6 +42,11 @@ from app.schemas.schedule import (
 from app.schemas.user import UserOut
 
 __all__ = [
+    "AccessRequestCreate",
+    "AccessRequestDecide",
+    "AccessRequestOut",
+    "VpsGrantCreate",
+    "VpsGrantOut",
     "UserOut",
     "DeviceCreate",
     "DeviceOut",

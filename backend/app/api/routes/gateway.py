@@ -50,6 +50,7 @@ class AccessIssueResponse(BaseModel):
     """Returned exactly once when password is minted. Plaintext NEVER goes out again."""
 
     session_id: str
+    booking_id: str  # surfaced so the frontend can call /bookings/{id}/access/regenerate
     password: str
     ssh_username: str
     jump_host: str
@@ -174,6 +175,7 @@ async def _issue_or_rotate(
     )
     return AccessIssueResponse(
         session_id=str(result.session.id),
+        booking_id=str(booking.id),
         password=result.password,
         ssh_username=settings.GATEWAY_SSH_USERNAME,
         jump_host=settings.JUMP_HOST_PUBLIC,

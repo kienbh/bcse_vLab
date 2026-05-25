@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    false,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
@@ -70,6 +71,13 @@ class Booking(Base, TimestampMixin):
     )
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # When True, this booking is exempt from the GIST EXCLUDE no-overlap rule —
+    # used for shared resources like VPS where multiple students may have
+    # concurrent grants. The application layer (vps_access service) is the
+    # authorisation gate; the EXCLUDE constraint is for time-slotted devices.
+    shared_resource: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
 
     user: Mapped[User] = relationship(back_populates="bookings", foreign_keys=[user_id])
     device: Mapped[Device] = relationship(back_populates="bookings")
