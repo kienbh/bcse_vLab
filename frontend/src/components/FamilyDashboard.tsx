@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Cog, Cpu, Inbox, Loader2, LogIn, RefreshCw, Server, Zap } from "lucide-react";
+import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
@@ -361,13 +361,73 @@ function FamilyInner({
   );
 }
 
-// VPS tiers (capabilities.tier) — ordered low → high. Categorised by config so
-// students pick the right size; tầm cao / VPS-GPU are placeholders for later.
-const TIER_META: Record<string, { label: string; order: number; blurb: string }> = {
-  thap: { label: "VPS tầm thấp", order: 1, blurb: "2 GB RAM — học tập, web nhẹ, dịch vụ nhỏ" },
-  trung: { label: "VPS tầm trung", order: 2, blurb: "4 GB RAM — back-end, API, cơ sở dữ liệu" },
-  cao: { label: "VPS tầm cao", order: 3, blurb: "RAM lớn — tải nặng, nhiều dịch vụ" },
-  gpu: { label: "VPS-GPU", order: 4, blurb: "Có GPU — huấn luyện AI / ML" },
+// VPS tiers (capabilities.tier) — ordered low → high. Each tier owns a distinct
+// visual identity (icon + gradient + panel bg + border) so students can spot
+// "máy nào hợp việc của mình" at a glance instead of squinting at chips.
+type TierMeta = {
+  label: string;
+  order: number;
+  blurb: string;
+  icon: React.ReactNode;
+  // Tailwind classes — kept literal (not template-built) so the JIT picks them up.
+  headerGradient: string;  // header strip background
+  panelBg: string;         // section panel background
+  panelBorder: string;     // section panel left-border accent
+  badgeBg: string;         // count chip background
+};
+
+const TIER_META: Record<string, TierMeta> = {
+  thap: {
+    label: "VPS tầm thấp",
+    order: 1,
+    blurb: "2 GB RAM — học tập, dựng web nhẹ, chạy dịch vụ nhỏ",
+    icon: <Gauge className="h-6 w-6" />,
+    headerGradient: "from-emerald-500 to-teal-600",
+    panelBg: "bg-emerald-50/60 dark:bg-emerald-950/20",
+    panelBorder: "border-l-emerald-400 dark:border-l-emerald-600",
+    badgeBg: "bg-emerald-600 text-white",
+  },
+  trung: {
+    label: "VPS tầm trung",
+    order: 2,
+    blurb: "4 GB RAM — chạy back-end, API, cơ sở dữ liệu cỡ trung",
+    icon: <Database className="h-6 w-6" />,
+    headerGradient: "from-sky-500 to-blue-600",
+    panelBg: "bg-sky-50/60 dark:bg-sky-950/20",
+    panelBorder: "border-l-sky-400 dark:border-l-sky-600",
+    badgeBg: "bg-sky-600 text-white",
+  },
+  cao: {
+    label: "VPS tầm cao",
+    order: 3,
+    blurb: "RAM lớn — tải nặng, nhiều dịch vụ song song",
+    icon: <Rocket className="h-6 w-6" />,
+    headerGradient: "from-amber-500 to-orange-600",
+    panelBg: "bg-amber-50/60 dark:bg-amber-950/20",
+    panelBorder: "border-l-amber-400 dark:border-l-amber-600",
+    badgeBg: "bg-amber-600 text-white",
+  },
+  gpu: {
+    label: "VPS-GPU",
+    order: 4,
+    blurb: "Có NVIDIA RTX 6000 Ada (48 GB VRAM) — huấn luyện AI / ML",
+    icon: <Zap className="h-6 w-6" />,
+    headerGradient: "from-purple-500 via-fuchsia-500 to-purple-700",
+    panelBg: "bg-purple-50/60 dark:bg-purple-950/25",
+    panelBorder: "border-l-purple-400 dark:border-l-purple-600",
+    badgeBg: "bg-purple-600 text-white",
+  },
+};
+
+const TIER_META_FALLBACK: TierMeta = {
+  label: "Khác",
+  order: 99,
+  blurb: "",
+  icon: <Server className="h-6 w-6" />,
+  headerGradient: "from-slate-500 to-slate-700",
+  panelBg: "bg-slate-50 dark:bg-slate-900/40",
+  panelBorder: "border-l-slate-300 dark:border-l-slate-700",
+  badgeBg: "bg-slate-600 text-white",
 };
 
 /**
@@ -416,21 +476,41 @@ function renderByTier(
   keys.sort((a, b) => (TIER_META[a]?.order ?? 99) - (TIER_META[b]?.order ?? 99));
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       {keys.map((tk) => {
-        const meta = TIER_META[tk];
+        const meta = TIER_META[tk] ?? TIER_META_FALLBACK;
+        const count = groups.get(tk)!.length;
         return (
-          <section key={tk || "_none"} className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-slate-200 pb-2 dark:border-slate-800">
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                {meta?.label ?? "Khác"}
-              </h2>
-              <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-bold text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
-                {groups.get(tk)!.length} máy
+          <section
+            key={tk || "_none"}
+            className={`overflow-hidden rounded-2xl border border-slate-200 ${meta.panelBg} border-l-4 ${meta.panelBorder} shadow-sm dark:border-slate-800`}
+          >
+            {/* Header strip — gradient + big icon + count, impossible to miss */}
+            <div
+              className={`flex flex-wrap items-center gap-3 bg-gradient-to-r ${meta.headerGradient} px-5 py-4 text-white shadow-sm`}
+            >
+              <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/20 backdrop-blur-sm">
+                {meta.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xl font-extrabold tracking-tight md:text-2xl">
+                  {meta.label}
+                </h2>
+                {meta.blurb && (
+                  <p className="text-xs font-medium text-white/85 md:text-sm">
+                    {meta.blurb}
+                  </p>
+                )}
+              </div>
+              <span
+                className={`inline-flex shrink-0 items-center gap-1 rounded-full ${meta.badgeBg} px-3 py-1 text-xs font-bold uppercase tracking-wide shadow-md ring-2 ring-white/40`}
+              >
+                <Sparkles className="h-3 w-3" />
+                {count} máy
               </span>
-              {meta?.blurb && <span className="text-xs text-slate-400">{meta.blurb}</span>}
             </div>
-            {grid(groups.get(tk)!)}
+            {/* Cards inside the panel — extra padding so they breathe inside the tint */}
+            <div className="p-4 md:p-5">{grid(groups.get(tk)!)}</div>
           </section>
         );
       })}
