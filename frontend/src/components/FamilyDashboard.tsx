@@ -162,7 +162,11 @@ function FamilyInner({
   } | null>(null);
   // VPS-only: which devices the current user has an ACTIVE long-running grant on.
   // Keyed by device_id, value is the grant valid_to ISO so the card can show "còn N ngày".
-  const [vpsGrants, setVpsGrants] = useState<Map<string, string>>(new Map());
+  // `null` = not yet loaded → cards render a neutral "checking" state instead of
+  // a misleading "request access" CTA when the user actually has a grant.
+  const [vpsGrants, setVpsGrants] = useState<Map<string, string> | null>(
+    family === "vps" ? null : new Map(),
+  );
 
   const load = useCallback(async () => {
     try {
@@ -185,15 +189,32 @@ function FamilyInner({
       setError(null);
 
       // VPS uses the long-running grant model instead of slot bookings —
-      // fetch the student's active grants so the card can show "Kết nối"
-      // (has grant) vs "Yêu cầu quyền" (no grant) instead of the slot picker.
+      // fetch ALL grants and filter client-side. Server-side active_only
+      // can lie at the day-boundary (server UTC vs browser local TZ); doing
+      // the window check in the browser keeps /devices/vps consistent with
+      // /vps-access which also filters client-side.
       if (family === "vps") {
-        const rg = await fetch(`${API}/vps-access/grants/mine?active_only=true`, {
+        const rg = await fetch(`${API}/vps-access/grants/mine`, {
           credentials: "include",
+          cache: "no-store",
         });
         if (rg.ok) {
-          const grants: { device_id: string; valid_to: string }[] = await rg.json();
-          setVpsGrants(new Map(grants.map((g) => [g.device_id, g.valid_to])));
+          const all: {
+            device_id: string;
+            valid_from: string;
+            valid_to: string;
+            revoked_at: string | null;
+          }[] = await rg.json();
+          const now = Date.now();
+          const active = all.filter(
+            (g) =>
+              !g.revoked_at &&
+              new Date(g.valid_from).getTime() <= now &&
+              new Date(g.valid_to).getTime() >= now,
+          );
+          setVpsGrants(new Map(active.map((g) => [g.device_id, g.valid_to])));
+        } else {
+          setVpsGrants(new Map());
         }
       }
     } catch (e) {
@@ -310,7 +331,9 @@ function FamilyInner({
           family,
           family === "vps" ? (_d) => requestVps() : setPicked,
           connect,
-          family === "vps" ? { vpsGrants, onVpsConnect: connectVps } : undefined,
+          family === "vps"
+            ? { vpsGrants: vpsGrants ?? new Map(), grantsLoaded: vpsGrants !== null, onVpsConnect: connectVps }
+            : undefined,
         )
       )}
 
@@ -359,6 +382,7 @@ function renderByTier(
   onConnect: (d: Device, bookingId: string) => void,
   vpsExtras?: {
     vpsGrants: Map<string, string>;
+    grantsLoaded: boolean;
     onVpsConnect: (d: Device) => void;
   },
 ): React.ReactNode {
@@ -372,6 +396,7 @@ function renderByTier(
             onBook={onBook}
             onConnect={onConnect}
             vpsGrantExpiresAt={vpsExtras?.vpsGrants.get(d.id) ?? null}
+            vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
             onVpsConnect={vpsExtras?.onVpsConnect}
           />
         </li>

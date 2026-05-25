@@ -1,10 +1,10 @@
 "use client";
 
-import { CheckCircle2, Clock, Plus, Server, X, XCircle } from "lucide-react";
-import Link from "next/link";
+import { CheckCircle2, Clock, Loader2, Plus, Server, Terminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { AuthGate } from "@/components/AuthGate";
 import { apiPost, useUser } from "@/lib/auth";
 
@@ -81,6 +81,8 @@ function Inner() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null); // grant.id
+  const [session, setSession] = useState<{ data: SessionResult; bookingId: string } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -131,6 +133,30 @@ function Inner() {
     const r = await apiPost(`/vps-access/requests/${id}/cancel`);
     if (r.ok) refresh();
     else setErr(`HTTP ${r.status}`);
+  };
+
+  // Mint a gateway session inline — no nav to /devices/vps. The backend
+  // auto-creates a booking spanning the SA window + returns the SSH command
+  // and one-time password (M5.8 gateway flow, same shape as FPGA/Jetson/Pi).
+  const connect = async (grant: Grant) => {
+    setConnecting(grant.id);
+    setErr(null);
+    try {
+      const r = await apiPost(`/vps-access/${grant.device_id}/access`);
+      if (r.ok) {
+        const data = (await r.json()) as SessionResult;
+        setSession({ data, bookingId: data.booking_id });
+      } else {
+        const e = await r.json().catch(() => ({}));
+        const code = e?.detail?.code ?? `HTTP ${r.status}`;
+        const hint = e?.detail?.hint ?? "";
+        setErr(`Không kết nối được: ${code}${hint ? ` — ${hint}` : ""}`);
+      }
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setConnecting(null);
+    }
   };
 
   const now = Date.now();
@@ -189,7 +215,14 @@ function Inner() {
             {activeGrants.length === 0 ? (
               <Empty msg="Chưa có quyền VPS active. Gửi yêu cầu hoặc liên hệ giảng viên." />
             ) : (
-              activeGrants.map((g) => <ActiveGrantCard key={g.id} grant={g} />)
+              activeGrants.map((g) => (
+                <ActiveGrantCard
+                  key={g.id}
+                  grant={g}
+                  busy={connecting === g.id}
+                  onConnect={() => connect(g)}
+                />
+              ))
             )}
           </Section>
 
@@ -229,6 +262,17 @@ function Inner() {
           )}
         </>
       )}
+
+      {session && (
+        <SessionLaunchModal
+          session={session.data}
+          bookingId={session.bookingId}
+          onSessionReplaced={(next) =>
+            setSession({ data: next, bookingId: session.bookingId })
+          }
+          onClose={() => setSession(null)}
+        />
+      )}
     </div>
   );
 }
@@ -261,7 +305,15 @@ function Empty({ msg }: { msg: string }) {
   );
 }
 
-function ActiveGrantCard({ grant }: { grant: Grant }) {
+function ActiveGrantCard({
+  grant,
+  busy,
+  onConnect,
+}: {
+  grant: Grant;
+  busy: boolean;
+  onConnect: () => void;
+}) {
   const daysLeft = Math.max(
     0,
     Math.ceil((new Date(grant.valid_to).getTime() - Date.now()) / 86_400_000),
@@ -279,12 +331,15 @@ function ActiveGrantCard({ grant }: { grant: Grant }) {
         </p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{grant.reason}</p>
       </div>
-      <Link
-        href="/devices/vps"
-        className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
+      <button
+        type="button"
+        onClick={onConnect}
+        disabled={busy}
+        className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
       >
-        Kết nối
-      </Link>
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Terminal className="h-4 w-4" />}
+        {busy ? "Đang lấy..." : "Kết nối SSH"}
+      </button>
     </div>
   );
 }
@@ -328,7 +383,15 @@ function RequestForm({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  // Local YYYY-MM-DD (not UTC) — toISOString() rolls a Vietnam-evening date
+  // back to "yesterday UTC" and pre-fills the wrong day on the form.
+  const today = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);

@@ -217,6 +217,9 @@ export interface DeviceCardProps {
   onConnect?: (device: Device, bookingId: string) => void;
   /** VPS-only: ISO of the active grant's valid_to. Null = no active grant. */
   vpsGrantExpiresAt?: string | null;
+  /** VPS-only: false while parent is still fetching grants. Prevents flashing
+   * "request access" CTA on a card the student actually has access to. */
+  vpsGrantsLoaded?: boolean;
   /** VPS-only: triggers POST /vps-access/{id}/access (grant-based, no slot). */
   onVpsConnect?: (device: Device) => void;
 }
@@ -227,6 +230,7 @@ export function DeviceCard({
   onBook,
   onConnect,
   vpsGrantExpiresAt,
+  vpsGrantsLoaded = true,
   onVpsConnect,
 }: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
@@ -525,7 +529,16 @@ export function DeviceCard({
             // VPS uses long-running grants, NOT slot bookings.
             // Has active grant → "Mở terminal SSH" (gateway mint via /vps-access/{id}/access)
             // No grant → "Yêu cầu quyền" → navigates to /vps-access page
-            vpsGrantExpiresAt ? (
+            !vpsGrantsLoaded ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Đang kiểm tra quyền...
+              </button>
+            ) : vpsGrantExpiresAt ? (
               <>
                 <button
                   type="button"

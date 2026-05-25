@@ -309,7 +309,10 @@ function DirectGrantForm({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
   const [email, setEmail] = useState("");
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(today);
