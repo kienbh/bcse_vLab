@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Clock, Plus, Server, X, XCircle } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
@@ -73,6 +74,7 @@ function StatusBadge({ status }: { status: AccessRequest["status"] }) {
 
 function Inner() {
   const { user } = useUser();
+  const router = useRouter();
   const [grants, setGrants] = useState<Grant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [vpsList, setVpsList] = useState<Device[]>([]);
@@ -102,11 +104,27 @@ function Inner() {
     }
   }, []);
 
+  // Admin/lecturer manage VPS access at /admin/vps-access (pending queue, all
+  // grants, direct grant form). The student-facing "my grants" view doesn't
+  // fit their workflow — redirect so the nav link works for every role.
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (user && (user.role === "admin" || user.role === "lecturer")) {
+      router.replace("/admin/vps-access");
+    }
+  }, [user, router]);
+
+  useEffect(() => {
+    if (user && user.role === "student") refresh();
+  }, [user, refresh]);
 
   if (!user) return null;
+  if (user.role !== "student") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10 text-sm text-slate-500">
+        Đang chuyển sang trang quản trị VPS...
+      </div>
+    );
+  }
 
   const cancel = async (id: string) => {
     if (!window.confirm("Huỷ yêu cầu này?")) return;
