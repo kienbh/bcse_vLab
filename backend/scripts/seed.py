@@ -115,6 +115,8 @@ async def upsert_device(
     internal_ip: str,
     plug_ip: str | None = None,
     capabilities: dict | None = None,
+    ssh_user: str = "student",
+    status: DeviceStatus = DeviceStatus.AVAILABLE,
 ) -> Device:
     res = await db.execute(select(Device).where(Device.name == name))
     d = res.scalar_one_or_none()
@@ -125,8 +127,8 @@ async def upsert_device(
             model=model,
             internal_ip=internal_ip,
             ssh_port=22,
-            ssh_user="student",
-            status=DeviceStatus.AVAILABLE,
+            ssh_user=ssh_user,
+            status=status,
             capabilities=capabilities or {},
         )
         db.add(d)
@@ -204,6 +206,36 @@ async def main() -> int:
                     "ram_gb": 4,
                     "vcpu": 2,
                     "disk_gb": 20,
+                    "tier": "trung",
+                },
+            )
+
+        # GPU-VPS — bcseserver1 (192.168.2.98) with 3× NVIDIA RTX 6000 Ada.
+        # One Linux user per GPU on the same host (research0N → GPU N) with
+        # cgroup limits (16 GB RAM, 100% CPU) — see [[bcse-ai-server]] memory
+        # and bcseserver1's systemctl set-property per user-slice config.
+        # status=available so cards appear in /devices/vps under "VPS-GPU"
+        # tier; admins can already grant via /admin/vps-access. Real SSH will
+        # work once backend admin pubkey is installed on the research0N users.
+        print("\n=== GPU-VPS — bcseserver1 192.168.2.98, 3× RTX 6000 Ada (planned) ===")
+        for n in (1, 2, 3):
+            await upsert_device(
+                db,
+                name=f"ai{n:02d}",
+                device_type=DeviceType.VPS,
+                model="GPU-VPS Ubuntu — 1× RTX 6000 Ada 48GB",
+                internal_ip="192.168.2.98",
+                ssh_user=f"research0{n}",
+                capabilities={
+                    "os": "Ubuntu 24.04",
+                    "vcpu": 8,
+                    "ram_gb": 16,
+                    "disk_gb": 100,
+                    "gpu": "NVIDIA RTX 6000 Ada",
+                    "vram_gb": 48,
+                    "cuda": "12.4",
+                    "tier": "gpu",
+                    "gpu_index": n - 1,
                 },
             )
 

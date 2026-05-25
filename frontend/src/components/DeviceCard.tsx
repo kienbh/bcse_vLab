@@ -13,6 +13,7 @@ import {
   Terminal,
   Wifi,
   WifiOff,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -478,27 +479,46 @@ export function DeviceCard({
         )}
 
         {/* Specs. For a VPS the CPU / RAM / Disk ARE the identity — show them
-            as three bold stat tiles, not tiny chips. Others keep key:val chips. */}
+            as three bold stat tiles, not tiny chips. Others keep key:val chips.
+            GPU-tier VPS get a highlighted purple ribbon above the stats so the
+            "có 48GB VRAM" tag-line is impossible to miss. */}
         {device.device_type === "vps" ? (
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { icon: <Cpu className="h-5 w-5" />, value: formatCapValue(device.capabilities.vcpu), unit: "vCPU" },
-              { icon: <MemoryStick className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.ram_gb)} GB`, unit: "RAM" },
-              { icon: <HardDrive className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.disk_gb)} GB`, unit: "Ổ đĩa" },
-            ].map((s) => (
-              <div
-                key={s.unit}
-                className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white py-3 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40"
-              >
-                <span className="text-indigo-500 dark:text-indigo-400">{s.icon}</span>
-                <span className="text-lg font-extrabold leading-none text-slate-800 dark:text-slate-100">
-                  {s.value}
+          <div className="flex flex-col gap-2">
+            {typeof device.capabilities.gpu === "string" && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-purple-300 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-purple-50 px-3 py-2 dark:border-purple-700 dark:from-purple-950/50 dark:via-fuchsia-950/50 dark:to-purple-950/50">
+                <span className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+                  <span className="text-sm font-extrabold text-purple-800 dark:text-purple-100">
+                    {device.capabilities.gpu as string}
+                  </span>
                 </span>
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                  {s.unit}
-                </span>
+                {typeof device.capabilities.vram_gb !== "undefined" && (
+                  <span className="rounded-md bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                    {formatCapValue(device.capabilities.vram_gb)} GB VRAM
+                  </span>
+                )}
               </div>
-            ))}
+            )}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { icon: <Cpu className="h-5 w-5" />, value: formatCapValue(device.capabilities.vcpu), unit: "vCPU" },
+                { icon: <MemoryStick className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.ram_gb)} GB`, unit: "RAM" },
+                { icon: <HardDrive className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.disk_gb)} GB`, unit: "Ổ đĩa" },
+              ].map((s) => (
+                <div
+                  key={s.unit}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white py-3 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40"
+                >
+                  <span className="text-indigo-500 dark:text-indigo-400">{s.icon}</span>
+                  <span className="text-lg font-extrabold leading-none text-slate-800 dark:text-slate-100">
+                    {s.value}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    {s.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : Object.keys(device.capabilities).length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
