@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Cpu, Cog, Zap, Workflow, BookCheck, Terminal, Calendar, ArrowRight } from "lucide-react";
+import { Cpu, Cog, Server, Zap, Workflow, BookCheck, Terminal, Calendar, ArrowRight } from "lucide-react";
 
 import { BackendStatus } from "@/components/BackendStatus";
 import { ClickableImage } from "@/components/Lightbox";
@@ -29,6 +29,23 @@ const FEATURES = [
     color: "from-rose-500 to-rose-700",
     count: "Pi 4 + Pi 5",
     href: "/devices/rpi",
+  },
+  {
+    titleKey: "feat.vps.title",
+    descKey: "feat.vps.desc",
+    icon: <Server className="h-6 w-6" />,
+    color: "from-sky-500 to-indigo-600",
+    count: "3 VPS Ubuntu",
+    href: "/devices/vps",
+  },
+  {
+    titleKey: "feat.vps_gpu.title",
+    descKey: "feat.vps_gpu.desc",
+    icon: <Zap className="h-6 w-6" />,
+    color: "from-purple-500 via-fuchsia-500 to-purple-700",
+    count: "3× RTX 6000 Ada · 48 GB",
+    href: "/devices/vps",
+    highlight: true,
   },
 ] as const;
 
@@ -146,34 +163,46 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-6 animate-slide-up">
-        <div className="grid gap-4 md:grid-cols-3">
-          {FEATURES.map((f, i) => (
-            <Link
-              key={i}
-              href={f.href}
-              className="surface group relative space-y-3 overflow-hidden p-6 transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div
-                className={`inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${f.color} text-white shadow-md`}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {FEATURES.map((f, i) => {
+            const isHighlight = "highlight" in f && f.highlight;
+            return (
+              <Link
+                key={i}
+                href={f.href}
+                className={`surface group relative space-y-3 overflow-hidden p-6 transition hover:-translate-y-0.5 hover:shadow-md ${
+                  isHighlight
+                    ? "ring-2 ring-purple-400/60 ring-offset-2 ring-offset-white dark:ring-purple-500/50 dark:ring-offset-slate-950"
+                    : ""
+                }`}
               >
-                {f.icon}
-              </div>
-              <h3 className="text-lg font-semibold">
-                <L k={f.titleKey} />
-              </h3>
-              <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
-                <L k={f.descKey} />
-              </p>
-              <div className="flex items-center justify-between pt-1">
-                <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
-                  {f.count}
-                </span>
-                <span className="text-xs font-semibold text-vju-500 transition group-hover:translate-x-0.5">
-                  Mở dashboard →
-                </span>
-              </div>
-            </Link>
-          ))}
+                {isHighlight && (
+                  <span className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-md">
+                    Mới
+                  </span>
+                )}
+                <div
+                  className={`inline-flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br ${f.color} text-white shadow-md`}
+                >
+                  {f.icon}
+                </div>
+                <h3 className="text-lg font-semibold">
+                  <L k={f.titleKey} />
+                </h3>
+                <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-400">
+                  <L k={f.descKey} />
+                </p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
+                    {f.count}
+                  </span>
+                  <span className="text-xs font-semibold text-vju-500 transition group-hover:translate-x-0.5">
+                    Mở dashboard →
+                  </span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </section>
     </div>

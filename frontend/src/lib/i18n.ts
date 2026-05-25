@@ -56,6 +56,16 @@ const MESSAGES = {
     vi: "Linux đa năng + GPIO — thử nghiệm sensor, IoT, embedded protocols.",
     en: "General Linux + GPIO — sensor experiments, IoT, embedded protocols.",
   },
+  "feat.vps.title": { vi: "VPS — Máy chủ ảo", en: "VPS — Virtual Servers" },
+  "feat.vps.desc": {
+    vi: "Ubuntu Proxmox — chạy back-end, API, web. Toàn quyền root SSH, thuê dài ngày (≤ 30 ngày).",
+    en: "Ubuntu on Proxmox — back-end / API / web. Full root SSH, long-term rental (≤ 30 days).",
+  },
+  "feat.vps_gpu.title": { vi: "VPS-GPU — RTX 6000 Ada", en: "VPS-GPU — RTX 6000 Ada" },
+  "feat.vps_gpu.desc": {
+    vi: "1× NVIDIA RTX 6000 Ada (48 GB VRAM) mỗi máy — huấn luyện AI / ML, CUDA 12.4 sẵn sàng.",
+    en: "1× NVIDIA RTX 6000 Ada (48 GB VRAM) per slot — AI / ML training, CUDA 12.4 ready.",
+  },
 
   // pages
   "page.devices.title": { vi: "Thiết bị", en: "Devices" },
