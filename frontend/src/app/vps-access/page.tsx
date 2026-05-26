@@ -145,7 +145,7 @@ function Inner() {
       const r = await apiPost(`/vps-access/${grant.device_id}/access`);
       if (r.ok) {
         const data = (await r.json()) as SessionResult;
-        setSession({ data, bookingId: data.booking_id });
+        setSession({ data, bookingId: data.booking_id ?? "" });
       } else {
         const e = await r.json().catch(() => ({}));
         const code = e?.detail?.code ?? `HTTP ${r.status}`;

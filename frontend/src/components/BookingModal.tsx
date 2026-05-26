@@ -299,6 +299,9 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
 
 /** Response shape of POST /api/bookings/{id}/access (ADR-0013, M5.8). */
 export interface SessionResult {
+  // VPS path echoes booking_id (auto-created by /vps-access/{device_id}/access);
+  // kit path doesn't need it because the caller already has it in the URL.
+  booking_id?: string;
   session_id: string;
   password: string;        // hiện 1 lần — regenerate nếu mất
   ssh_username: string;    // 'vlab' (account trên gateway)
