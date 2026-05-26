@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Cpu, Cog, Zap, Filter, Inbox } from "lucide-react";
+import { Cpu, Cog, Zap, Filter, Inbox, Server } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AuthGate } from "@/components/AuthGate";
@@ -13,7 +13,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 type Device = {
   id: string;
   name: string;
-  device_type: "fpga_kv260" | "jetson_nano" | "jetson_orin" | "rpi4" | "rpi5";
+  device_type: "fpga_kv260" | "jetson_nano" | "jetson_orin" | "rpi4" | "rpi5" | "vps";
   model: string;
   status: "available" | "in_use" | "maintenance" | "offline";
   capabilities: Record<string, unknown>;
@@ -25,6 +25,7 @@ const ICON: Record<Device["device_type"], React.ReactNode> = {
   jetson_orin: <Cpu className="h-5 w-5" />,
   rpi4: <Zap className="h-5 w-5" />,
   rpi5: <Zap className="h-5 w-5" />,
+  vps: <Server className="h-5 w-5" />,
 };
 
 const GRAD: Record<Device["device_type"], string> = {
@@ -33,6 +34,7 @@ const GRAD: Record<Device["device_type"], string> = {
   jetson_orin: "from-emerald-500 to-emerald-700",
   rpi4: "from-rose-500 to-rose-700",
   rpi5: "from-rose-500 to-rose-700",
+  vps: "from-indigo-500 to-indigo-700",
 };
 
 const STATUS_BADGE: Record<Device["status"], string> = {
@@ -42,9 +44,10 @@ const STATUS_BADGE: Record<Device["status"], string> = {
   offline: "bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300",
 };
 
-function familyOf(t: Device["device_type"]): "FPGA" | "Jetson" | "RPi" {
+function familyOf(t: Device["device_type"]): "FPGA" | "Jetson" | "RPi" | "VPS" {
   if (t === "fpga_kv260") return "FPGA";
   if (t === "jetson_nano" || t === "jetson_orin") return "Jetson";
+  if (t === "vps") return "VPS";
   return "RPi";
 }
 
@@ -53,7 +56,7 @@ function DevicesInner() {
   const locale = useLocaleListener();
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"ALL" | "FPGA" | "Jetson" | "RPi">("ALL");
+  const [filter, setFilter] = useState<"ALL" | "FPGA" | "Jetson" | "RPi" | "VPS">("ALL");
   const [status, setStatus] = useState<Device["status"] | "ALL">("ALL");
 
   useEffect(() => {
@@ -117,6 +120,12 @@ function DevicesInner() {
           >
             <Zap className="h-3.5 w-3.5" /> Raspberry Pi
           </Link>
+          <Link
+            href="/devices/vps"
+            className="inline-flex items-center gap-1 rounded-md bg-indigo-500 px-3 py-1.5 font-semibold text-white hover:bg-indigo-600"
+          >
+            <Server className="h-3.5 w-3.5" /> VPS
+          </Link>
         </div>
       </div>
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -130,7 +139,7 @@ function DevicesInner() {
         </div>
         <div className="flex items-center gap-2 text-xs">
           <Filter className="h-4 w-4 text-slate-400" />
-          {(["ALL", "FPGA", "Jetson", "RPi"] as const).map((tf) => (
+          {(["ALL", "FPGA", "Jetson", "RPi", "VPS"] as const).map((tf) => (
             <button
               key={tf}
               onClick={() => setFilter(tf)}
