@@ -13,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     String,
+    false,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
@@ -58,8 +59,27 @@ class Booking(Base, TimestampMixin):
         index=True,
     )
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # M6 — ad-hoc request + approval lifecycle (pending_approval → scheduled / rejected)
+    request_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    planned_slot_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("planned_slots.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    decided_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # When True, this booking is exempt from the GIST EXCLUDE no-overlap rule —
+    # used for shared resources like VPS where multiple students may have
+    # concurrent grants. The application layer (vps_access service) is the
+    # authorisation gate; the EXCLUDE constraint is for time-slotted devices.
+    shared_resource: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
 
-    user: Mapped[User] = relationship(back_populates="bookings")
+    user: Mapped[User] = relationship(back_populates="bookings", foreign_keys=[user_id])
     device: Mapped[Device] = relationship(back_populates="bookings")
     class_: Mapped[Class | None] = relationship(back_populates="bookings", foreign_keys=[class_id])
     special_access: Mapped[SpecialAccess | None] = relationship(
@@ -71,9 +91,11 @@ class Booking(Base, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint("end_time > start_time", name="ck_bookings_time_order"),
+        # Migration 0010 widened the cap from 8h to 31 days for VPS long grants;
+        # non-VPS bookings still get 8h enforced at the access_control layer.
         CheckConstraint(
-            "EXTRACT(EPOCH FROM (end_time - start_time)) <= 8 * 3600",
-            name="ck_bookings_max_duration_8h",
+            "EXTRACT(EPOCH FROM (end_time - start_time)) <= 31 * 86400",
+            name="ck_bookings_max_duration_31d",
         ),
         CheckConstraint(
             """
@@ -83,8 +105,9 @@ class Booking(Base, TimestampMixin):
             """,
             name="ck_bookings_grant_xor",
         ),
-        # The GIST EXCLUDE — see migration 0001 for the actual table-level
-        # constraint with `tstzrange(start_time, end_time, '[)')`.
+        # The GIST EXCLUDE — see migrations 0001 + 0010 for the actual table-level
+        # constraint with `tstzrange(start_time, end_time, '[)')` and the
+        # `NOT shared_resource` exemption for VPS overlap.
         Index("ix_bookings_user_status", "user_id", "status"),
         Index("ix_bookings_device_active", "device_id", postgresql_where=text("status IN ('scheduled','active')")),
     )

@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     DOMAIN: str = "localhost"
     TZ: str = "Asia/Ho_Chi_Minh"
 
+    # Dev-mode quick login: one-click sign-in as a fixed test account per role.
+    # MUST be false in real production — when off, only whitelist login works.
+    DEV_LOGIN_ENABLED: bool = False
+
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "labportal"
