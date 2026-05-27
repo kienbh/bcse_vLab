@@ -328,9 +328,11 @@ def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
         "DURATION_NOT_MULTIPLE_OF_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "ZERO_BLOCKS": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "EXCEEDS_AUTO_LIMIT": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "NOT_CURRENT_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "PAST_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "BLOCK_TAKEN": status.HTTP_409_CONFLICT,
         "QUEUED_AHEAD": status.HTTP_409_CONFLICT,
+        "ALREADY_HOLDING_BLOCK": status.HTTP_409_CONFLICT,
         "NOT_AN_AUTO_BLOCK": status.HTTP_409_CONFLICT,
         "NOT_CANCELLABLE": status.HTTP_409_CONFLICT,
         "ALREADY_ENDED": status.HTTP_409_CONFLICT,
@@ -356,6 +358,52 @@ def _block_out(b: Booking, *, owner: User | None, viewer_id: UUID) -> BlockBooki
     )
 
 
+@router.post(
+    "/{device_id}/blocks/current",
+    response_model=BlockBookingOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def book_current_block(
+    device_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BlockBookingOut:
+    """Book the CURRENT 4h block on this VPS for the calling student.
+
+    No payload — the backend computes the window from the server clock so
+    the front-end can't accidentally drift / send a future block. The single-
+    block-at-a-time rule is enforced inside `book_block`.
+    """
+    cur_start, cur_end = block_svc.current_block_window()
+    try:
+        booking = await block_svc.book_block(
+            db,
+            student=user,
+            device_id=device_id,
+            start_time=cur_start,
+            end_time=cur_end,
+        )
+    except block_svc.BlockBookingError as e:
+        raise _block_svc_to_http(e)
+    await audit_log(
+        db,
+        actor=user,
+        action="vps_block.book_current",
+        target_type="booking",
+        target_id=str(booking.id),
+        details={
+            "device_id": str(device_id),
+            "start_time": booking.start_time.isoformat(),
+            "end_time": booking.end_time.isoformat(),
+        },
+        request=request,
+    )
+    await db.commit()
+    await db.refresh(booking)
+    return _block_out(booking, owner=user, viewer_id=user.id)
+
+
 @router.post("/{device_id}/blocks", response_model=BlockBookingOut, status_code=status.HTTP_201_CREATED)
 async def book_block(
     device_id: UUID,
@@ -364,7 +412,7 @@ async def book_block(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> BlockBookingOut:
-    """Self-book a 4h-aligned block on a VPS (up to 6 blocks = 24h)."""
+    """Self-book a 4h-aligned block on a VPS (must be the current block window)."""
     try:
         booking = await block_svc.book_block(
             db,

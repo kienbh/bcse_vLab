@@ -216,13 +216,20 @@ export interface DeviceCardProps {
   family: DeviceFamily;
   onBook: (device: Device) => void;
   onConnect?: (device: Device, bookingId: string) => void;
-  /** VPS-only: ISO of the active grant's valid_to. Null = no active grant. */
+  /** VPS-only: ISO of the active grant's valid_to (long term OR active auto
+   * block — both unlock "MỞ TERMINAL SSH"). Null = no current access. */
   vpsGrantExpiresAt?: string | null;
   /** VPS-only: false while parent is still fetching grants. Prevents flashing
    * "request access" CTA on a card the student actually has access to. */
   vpsGrantsLoaded?: boolean;
   /** VPS-only: triggers POST /vps-access/{id}/access (grant-based, no slot). */
   onVpsConnect?: (device: Device) => void;
+  /** VPS-only: true iff this card's device is the SV's current auto block. */
+  vpsHasMyActiveBlock?: boolean;
+  /** VPS-only: true iff SV is currently holding a block on a DIFFERENT VPS. */
+  vpsHasOtherActiveBlock?: boolean;
+  /** VPS-only: cancel the SV's active auto block on this card's device. */
+  onCancelMyBlock?: (device: Device) => void;
 }
 
 export function DeviceCard({
@@ -233,6 +240,9 @@ export function DeviceCard({
   vpsGrantExpiresAt,
   vpsGrantsLoaded = true,
   onVpsConnect,
+  vpsHasMyActiveBlock = false,
+  vpsHasOtherActiveBlock = false,
+  onCancelMyBlock,
 }: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -546,9 +556,13 @@ export function DeviceCard({
         {/* Actions */}
         <div className="mt-1 flex flex-col gap-2">
           {family === "vps" ? (
-            // VPS uses long-running grants, NOT slot bookings.
-            // Has active grant → "Mở terminal SSH" (gateway mint via /vps-access/{id}/access)
-            // No grant → "Yêu cầu quyền" → navigates to /vps-access page
+            // VPS uses long-running grants OR the SV's single current auto block.
+            //   • !vpsGrantsLoaded → checking
+            //   • has grant or own active block → MỞ TERMINAL SSH (+ Huỷ block
+            //     if it's an auto block we own)
+            //   • no own access, but holding a block on another VPS → disabled
+            //     + "đang giữ block trên kit khác"
+            //   • free → ĐẶT BLOCK NGAY (confirm in handler)
             !vpsGrantsLoaded ? (
               <button
                 type="button"
@@ -570,9 +584,29 @@ export function DeviceCard({
                   MỞ TERMINAL SSH
                 </button>
                 <p className="text-center text-[10px] text-slate-500">
-                  Quyền truy cập đến {new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}
+                  {vpsHasMyActiveBlock
+                    ? `Block kết thúc lúc ${new Date(vpsGrantExpiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
+                    : `Quyền truy cập đến ${new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}`}
                 </p>
+                {vpsHasMyActiveBlock && onCancelMyBlock && (
+                  <button
+                    type="button"
+                    onClick={() => onCancelMyBlock(device)}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                  >
+                    Huỷ block
+                  </button>
+                )}
               </>
+            ) : vpsHasOtherActiveBlock ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="Mỗi SV chỉ giữ 1 block tại 1 thời điểm. Huỷ block hiện tại trước."
+              >
+                Bạn đang giữ block trên kit khác
+              </button>
             ) : (
               <>
                 <button
@@ -581,10 +615,10 @@ export function DeviceCard({
                   className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
                 >
                   <Calendar className="h-4 w-4" />
-                  ĐẶT BLOCK
+                  ĐẶT BLOCK NGAY
                 </button>
                 <p className="text-center text-[10px] text-slate-500">
-                  Block 4h tự-phục-vụ · cần dài hơn → proposal
+                  Block 4h hiện tại · cần dài hơn → email GV
                 </p>
               </>
             )

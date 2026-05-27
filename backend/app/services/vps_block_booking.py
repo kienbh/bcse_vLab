@@ -39,7 +39,9 @@ from app.models import (
 
 BLOCK_HOURS = 4
 BLOCKS_PER_DAY = 6
-MAX_BLOCKS_AUTO = 6  # 6 × 4h = 24h ceiling for self-service
+MAX_BLOCKS_AUTO = 1  # single block at a time (per thầy's spec 2026-05-27).
+                     # Longer continuous use → proposal via email (no in-portal
+                     # request). See [[bcse-vlab-vps-access]] for the email flow.
 
 
 class BlockBookingError(Exception):
@@ -101,26 +103,36 @@ async def _ensure_vps(db: AsyncSession, device_id: UUID) -> Device:
     return device
 
 
-async def _has_future_auto_booking(
-    db: AsyncSession, *, student_id: UUID, device_id: UUID
-) -> bool:
-    """Round-robin fairness: each SV may hold at most 1 future-or-active
-    auto-block on a given VPS. After your block finishes you can book again
-    — but anyone who's been waiting will already have grabbed the next slot."""
+async def _existing_auto_booking_anywhere(
+    db: AsyncSession, *, student_id: UUID
+) -> Booking | None:
+    """Per thầy's spec 2026-05-27: a student may hold AT MOST 1 active auto
+    block ACROSS ALL VPS — not per-VPS. Returns the offending booking if any
+    so we can quote it back in the error message."""
     now = _utcnow()
     row = await db.execute(
-        select(func.count(Booking.id))
+        select(Booking)
         .where(
             Booking.user_id == student_id,
-            Booking.device_id == device_id,
             Booking.granted_via == BookingGrantedVia.AUTO,
             Booking.status.in_(
                 [BookingStatus.SCHEDULED, BookingStatus.ACTIVE]
             ),
             Booking.end_time > now,
         )
+        .limit(1)
     )
-    return (row.scalar_one() or 0) > 0
+    return row.scalar_one_or_none()
+
+
+def current_block_window(now: datetime | None = None) -> tuple[datetime, datetime]:
+    """The 4h block containing `now` (default = utcnow), aligned to
+    00/04/08/12/16/20 UTC. Used to enforce "book only the current block"."""
+    n = (now or _utcnow()).astimezone(timezone.utc).replace(
+        minute=0, second=0, microsecond=0
+    )
+    start = n.replace(hour=(n.hour // BLOCK_HOURS) * BLOCK_HOURS)
+    return start, start + timedelta(hours=BLOCK_HOURS)
 
 
 async def book_block(
@@ -131,18 +143,37 @@ async def book_block(
     start_time: datetime,
     end_time: datetime,
 ) -> Booking:
+    """Book the CURRENT 4h block on `device_id` for `student`.
+
+    Per the 2026-05-27 spec, the only accepted window is the block that's
+    currently in progress (no future-block booking, no multi-block ranges).
+    The student gets whatever's left of the block; the next block opens for
+    a fresh round of FIFO at the next boundary.
+    """
     device = await _ensure_vps(db, device_id)
     _validate_window(start_time, end_time)
 
-    if start_time < _utcnow() - timedelta(minutes=5):
-        raise BlockBookingError("PAST_BLOCK", "Block này đã bắt đầu")
-
-    if await _has_future_auto_booking(db, student_id=student.id, device_id=device_id):
+    # Window MUST be the current block, not a future or past one.
+    cur_start, cur_end = current_block_window()
+    if start_time != cur_start or end_time != cur_end:
         raise BlockBookingError(
-            "QUEUED_AHEAD",
-            "Bạn đang giữ 1 block chưa xài. "
-            "Đợi block hiện tại kết thúc rồi mới book tiếp — "
-            "để SV khác có cơ hội.",
+            "NOT_CURRENT_BLOCK",
+            f"Chỉ đặt được block hiện tại "
+            f"({cur_start.strftime('%H:%M')}-{cur_end.strftime('%H:%M')} UTC). "
+            "Block tương lai đã bỏ — đợi đến giờ rồi đặt.",
+            current_start=cur_start.isoformat(),
+            current_end=cur_end.isoformat(),
+        )
+
+    existing = await _existing_auto_booking_anywhere(db, student_id=student.id)
+    if existing is not None:
+        raise BlockBookingError(
+            "ALREADY_HOLDING_BLOCK",
+            "Bạn đang giữ 1 block khác. Mỗi SV chỉ giữ 1 block tại 1 lúc. "
+            "Huỷ block hiện tại trước khi đặt mới.",
+            existing_booking_id=str(existing.id),
+            existing_device_id=str(existing.device_id),
+            existing_end_time=existing.end_time.isoformat(),
         )
 
     booking = Booking(

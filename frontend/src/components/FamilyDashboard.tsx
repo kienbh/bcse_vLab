@@ -4,11 +4,10 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
-import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
-import { useUser } from "@/lib/auth";
+import { apiPost, useUser } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -161,8 +160,6 @@ function FamilyInner({
     data: SessionResult;
     bookingId: string;
   } | null>(null);
-  // VPS-only: which device the user is currently viewing the block calendar of.
-  const [calendarFor, setCalendarFor] = useState<Device | null>(null);
   // VPS-only: which devices the current user has an ACTIVE long-running grant on.
   // Keyed by device_id, value is the grant valid_to ISO so the card can show "còn N ngày".
   // `null` = not yet loaded → cards render a neutral "checking" state instead of
@@ -170,6 +167,11 @@ function FamilyInner({
   const [vpsGrants, setVpsGrants] = useState<Map<string, string> | null>(
     family === "vps" ? null : new Map(),
   );
+  // VPS-only: the SV's single currently-held auto block (at most one across
+  // ALL VPS — per thầy's spec). Drives "MỞ TERMINAL SSH" / "Huỷ block" /
+  // "Bạn đang giữ block trên X" logic on every VPS card.
+  type ActiveBlock = { booking_id: string; device_id: string; end_time: string };
+  const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -191,16 +193,20 @@ function FamilyInner({
       setDevices(filtered);
       setError(null);
 
-      // VPS uses the long-running grant model instead of slot bookings —
-      // fetch ALL grants and filter client-side. Server-side active_only
-      // can lie at the day-boundary (server UTC vs browser local TZ); doing
-      // the window check in the browser keeps /devices/vps consistent with
-      // /vps-access which also filters client-side.
+      // VPS: pull long-running grants AND the SV's single active auto block
+      // in parallel. Both feed into per-card state ("MỞ TERMINAL SSH" if
+      // either is active for this VPS, "ĐẶT BLOCK NGAY" otherwise).
       if (family === "vps") {
-        const rg = await fetch(`${API}/vps-access/grants/mine`, {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [rg, rb] = await Promise.all([
+          fetch(`${API}/vps-access/grants/mine`, {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch(`${API}/vps-access/blocks/mine`, {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
         if (rg.ok) {
           const all: {
             device_id: string;
@@ -218,6 +224,25 @@ function FamilyInner({
           setVpsGrants(new Map(active.map((g) => [g.device_id, g.valid_to])));
         } else {
           setVpsGrants(new Map());
+        }
+        if (rb.ok) {
+          const blocks: {
+            id: string;
+            device_id: string;
+            start_time: string;
+            end_time: string;
+          }[] = await rb.json();
+          const now = Date.now();
+          const live = blocks.find(
+            (b) =>
+              new Date(b.start_time).getTime() <= now &&
+              new Date(b.end_time).getTime() > now,
+          );
+          setActiveBlock(
+            live
+              ? { booking_id: live.id, device_id: live.device_id, end_time: live.end_time }
+              : null,
+          );
         }
       }
     } catch (e) {
@@ -265,11 +290,52 @@ function FamilyInner({
     }
   };
 
-  // For VPS family: book button → opens the block calendar modal.
-  // The "YÊU CẦU QUYỀN" button on a card now means "open scheduling calendar"
-  // for this VPS — the legacy multi-day proposal flow lives at /vps-access
-  // and is linked from inside the calendar's info banner.
-  const openCalendar = (d: Device) => setCalendarFor(d);
+  // VPS book — confirm window with the SV, then POST. The backend computes
+  // the current 4h block server-side so the FE doesn't drift if the user's
+  // clock is off.
+  const bookCurrentBlock = async (d: Device) => {
+    if (activeBlock) {
+      alert(
+        `Bạn đang giữ block tới ${new Date(activeBlock.end_time).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}. ` +
+          `Huỷ block hiện tại trước khi đặt mới.`,
+      );
+      return;
+    }
+    // Show the actual current block window so the SV knows what they're
+    // committing to before pressing Yes.
+    const now = new Date();
+    const blockH = 4;
+    const startHour = Math.floor(now.getUTCHours() / blockH) * blockH;
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), startHour));
+    const end = new Date(start.getTime() + blockH * 3600_000);
+    const fmt = (d: Date) =>
+      d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+    if (!confirm(`Đặt block ${fmt(start)}–${fmt(end)} (4h) trên ${d.name}?`)) return;
+    const r = await apiPost(`/vps-access/${d.id}/blocks/current`);
+    if (r.ok) {
+      load();
+    } else {
+      const e = await r.json().catch(() => ({}));
+      alert(`Không đặt được: ${e?.detail?.message || e?.detail?.code || `HTTP ${r.status}`}`);
+    }
+  };
+
+  // Cancel the SV's active auto block (only enabled when it's the current
+  // card's block).
+  const cancelMyBlock = async (d: Device) => {
+    if (!activeBlock || activeBlock.device_id !== d.id) return;
+    if (!confirm(`Huỷ block trên ${d.name}? Khi huỷ xong SV khác sẽ vào được.`)) return;
+    const r = await fetch(`${API}/vps-access/${d.id}/blocks/${activeBlock.booking_id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (r.ok) {
+      load();
+    } else {
+      const e = await r.json().catch(() => ({}));
+      alert(`Không huỷ được: ${e?.detail?.message || e?.detail?.code || `HTTP ${r.status}`}`);
+    }
+  };
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -333,10 +399,17 @@ function FamilyInner({
         renderByTier(
           devices,
           family,
-          family === "vps" ? openCalendar : setPicked,
+          family === "vps" ? bookCurrentBlock : setPicked,
           connect,
           family === "vps"
-            ? { vpsGrants: vpsGrants ?? new Map(), grantsLoaded: vpsGrants !== null, onVpsConnect: connectVps }
+            ? {
+                vpsGrants: vpsGrants ?? new Map(),
+                grantsLoaded: vpsGrants !== null,
+                onVpsConnect: connectVps,
+                activeBlockDeviceId: activeBlock?.device_id ?? null,
+                activeBlockEndTime: activeBlock?.end_time ?? null,
+                onCancelBlock: cancelMyBlock,
+              }
             : undefined,
         )
       )}
@@ -359,14 +432,6 @@ function FamilyInner({
             setSession({ data: next, bookingId: session.bookingId })
           }
           onClose={() => setSession(null)}
-        />
-      )}
-      {calendarFor && (
-        <BlockCalendarModal
-          deviceId={calendarFor.id}
-          deviceName={calendarFor.name}
-          onClose={() => setCalendarFor(null)}
-          onChanged={load}
         />
       )}
     </div>
@@ -456,23 +521,39 @@ function renderByTier(
     vpsGrants: Map<string, string>;
     grantsLoaded: boolean;
     onVpsConnect: (d: Device) => void;
+    activeBlockDeviceId: string | null;
+    activeBlockEndTime: string | null;
+    onCancelBlock: (d: Device) => void;
   },
 ): React.ReactNode {
   const grid = (list: Device[]) => (
     <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-      {list.map((d) => (
-        <li key={d.id}>
-          <DeviceCard
-            device={d}
-            family={family}
-            onBook={onBook}
-            onConnect={onConnect}
-            vpsGrantExpiresAt={vpsExtras?.vpsGrants.get(d.id) ?? null}
-            vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
-            onVpsConnect={vpsExtras?.onVpsConnect}
-          />
-        </li>
-      ))}
+      {list.map((d) => {
+        const isMyActiveBlock = vpsExtras?.activeBlockDeviceId === d.id;
+        return (
+          <li key={d.id}>
+            <DeviceCard
+              device={d}
+              family={family}
+              onBook={onBook}
+              onConnect={onConnect}
+              vpsGrantExpiresAt={
+                vpsExtras?.vpsGrants.get(d.id) ??
+                (isMyActiveBlock ? vpsExtras?.activeBlockEndTime ?? null : null)
+              }
+              vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
+              onVpsConnect={vpsExtras?.onVpsConnect}
+              vpsHasMyActiveBlock={isMyActiveBlock}
+              vpsHasOtherActiveBlock={
+                vpsExtras?.activeBlockDeviceId !== null &&
+                vpsExtras?.activeBlockDeviceId !== undefined &&
+                vpsExtras.activeBlockDeviceId !== d.id
+              }
+              onCancelMyBlock={vpsExtras?.onCancelBlock}
+            />
+          </li>
+        );
+      })}
     </ul>
   );
 
