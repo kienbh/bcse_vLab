@@ -463,6 +463,84 @@ function BookingsInner() {
   );
 }
 
+/** Chip-row picker — every device is a clickable button with a status dot.
+ * Replaces the old `<select>` dropdown so students can see + tap straight
+ * onto the kit they want. Grouped by family for readability. */
+function DevicePicker({
+  devices,
+  selectedId,
+  onSelect,
+}: {
+  devices: Device[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const groups: { label: string; types: Device["device_type"][]; tint: string }[] = [
+    { label: "FPGA", types: ["fpga_kv260"], tint: "from-vju-500 to-vju-700" },
+    { label: "Jetson", types: ["jetson_nano", "jetson_orin"], tint: "from-emerald-500 to-teal-700" },
+    { label: "Raspberry Pi", types: ["rpi4", "rpi5"], tint: "from-rose-500 to-pink-700" },
+  ];
+  // Sort kits inside each group by name so 001 < 010 (per FleetView naming).
+  const byGroup = groups
+    .map((g) => ({
+      ...g,
+      items: devices
+        .filter((d) => g.types.includes(d.device_type))
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }),
+        ),
+    }))
+    .filter((g) => g.items.length > 0);
+
+  if (byGroup.length === 0) {
+    return (
+      <p className="text-xs italic text-slate-500">
+        Chưa có thiết bị nào trong pool. Vào /admin/devices để thêm.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {byGroup.map((g) => (
+        <div key={g.label} className="flex items-center gap-2">
+          <span className="w-20 shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            {g.label}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.items.map((d) => {
+              const active = selectedId === d.id;
+              const isOffline = d.status === "offline";
+              const isMaint = d.status === "maintenance";
+              const dot = isOffline
+                ? "bg-rose-400"
+                : isMaint
+                  ? "bg-amber-400"
+                  : "bg-emerald-400";
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => onSelect(d.id)}
+                  title={`${d.model} · ${d.status}`}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                    active
+                      ? `border-transparent bg-gradient-to-br text-white shadow-md ${g.tint}`
+                      : "border-slate-300 bg-white text-slate-700 hover:border-vju-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${dot}`} />
+                  {d.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const HOUR_PX = 40;
 const START_HOUR = 7;
 const END_HOUR = 23;
@@ -611,34 +689,34 @@ function WeekCalendar({
 
   return (
     <div className="surface overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-3">
-          <Cpu className="h-4 w-4 text-vju-500" />
-          <select
-            value={selectedDeviceId ?? ""}
-            onChange={(e) => onSelectDevice(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold focus:border-vju-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
-          >
-            <option value="" disabled>Chọn thiết bị...</option>
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>{d.name} — {d.model}</option>
-            ))}
-          </select>
-          <span className="text-xs text-slate-500">
-            {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
-            {new Date(weekEnd.getTime() - 1).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
-          </span>
+      <header className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+            <Cpu className="h-4 w-4 text-vju-500" />
+            Chọn thiết bị để xem lịch + đặt slot:
+          </p>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>
+              {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
+              {new Date(weekEnd.getTime() - 1).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+            </span>
+            <div className="inline-flex rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900">
+              <button onClick={() => onWeekChange(weekOffset - 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
+              <button
+                onClick={() => onWeekChange(0)}
+                className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+              >
+                Tuần này
+              </button>
+              <button onClick={() => onWeekChange(weekOffset + 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
+            </div>
+          </div>
         </div>
-        <div className="inline-flex rounded-md border border-slate-300 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
-          <button onClick={() => onWeekChange(weekOffset - 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
-          <button
-            onClick={() => onWeekChange(0)}
-            className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
-          >
-            Tuần này
-          </button>
-          <button onClick={() => onWeekChange(weekOffset + 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
-        </div>
+        <DevicePicker
+          devices={devices}
+          selectedId={selectedDeviceId}
+          onSelect={onSelectDevice}
+        />
       </header>
 
       {!selectedDevice ? (
