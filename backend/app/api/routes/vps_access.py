@@ -42,6 +42,7 @@ from app.services import vps_access as svc
 from app.services import vps_admin as admin_svc
 from app.services import vps_block_booking as block_svc
 from app.services.audit import audit_log
+from app.services.notifier import send_proposal_email
 
 router = APIRouter(prefix="/vps-access", tags=["vps-access"])
 
@@ -184,6 +185,21 @@ async def create_request(
     )
     await db.commit()
     await db.refresh(ar)
+    # Notify the lecturer by email — best-effort, doesn't block the API on
+    # SMTP failure (the request row is the source of truth).
+    try:
+        await send_proposal_email(
+            student_email=user.email,
+            student_name=user.full_name or user.email,
+            student_code=user.student_code,
+            device_name=device.name,
+            requested_from=ar.requested_from.strftime("%d/%m/%Y"),
+            requested_to=ar.requested_to.strftime("%d/%m/%Y"),
+            reason=ar.reason,
+            request_id=str(ar.id),
+        )
+    except Exception:
+        pass
     return _ar_out(ar, student=user, device=device)
 
 

@@ -173,6 +173,9 @@ function FamilyInner({
   // "Bạn đang giữ block trên X" logic on every VPS card.
   type ActiveBlock = { booking_id: string; device_id: string; end_time: string };
   const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
+  // Refresh button state — disable + spin while load() is in flight so the
+  // user gets immediate feedback the click was registered.
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -255,6 +258,18 @@ function FamilyInner({
     load();
   }, [load]);
 
+  // Wrapper used by the "Làm mới" button — toggles `refreshing` so the icon
+  // spins + the button disables while load() is in flight.
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load, refreshing]);
+
   const connect = async (_device: Device, bookingId: string) => {
     // ADR-0013: backend mints a password for this booking and returns the
     // full ssh command. Password is in the response body once.
@@ -315,11 +330,12 @@ function FamilyInner({
           <FamilyTabs current={family} />
           <button
             type="button"
-            onClick={load}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Làm mới
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Đang tải..." : "Làm mới"}
           </button>
         </div>
       </header>

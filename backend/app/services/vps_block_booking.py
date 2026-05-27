@@ -39,14 +39,14 @@ from app.models import (
 from app.services.device_prober import probe_tcp
 
 
-BLOCK_HOURS = 4
-BLOCKS_PER_DAY = 6
-# 2026-05-27 (revised): user wants FLEXIBLE booking — SV picks any free
-# block in present or future, up to 6 consecutive (24h) per single booking.
-# Multiple separate bookings per SV allowed; only the GIST EXCLUDE no-overlap
-# rule + VPS_OFFLINE guard apply. Longer than 24h continuous → email lecturer
-# for a long grant.
-MAX_BLOCKS_AUTO = 6
+BLOCK_HOURS = 6
+BLOCKS_PER_DAY = 4
+# 2026-05-27 (revised twice): per thầy's clarification — original spec was
+# 6h/block × 4 blocks/day (UTC 00/06/12/18). SV can pick any free block in
+# present or future, up to 4 consecutive (24h) per booking. Multiple separate
+# bookings per SV allowed; only GIST EXCLUDE + VPS_OFFLINE guards apply.
+# Longer than 24h continuous → email lecturer for a long grant.
+MAX_BLOCKS_AUTO = 4
 
 
 class BlockBookingError(Exception):

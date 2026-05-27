@@ -1,8 +1,8 @@
 "use client";
 
-import { Clock, Loader2, Mail, Server, Terminal } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, Plus, Send, Server, Terminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { AuthGate } from "@/components/AuthGate";
@@ -11,11 +11,12 @@ import { apiPost, useUser } from "@/lib/auth";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const MAX_DAYS = 30;
 
-// Default mailto recipient for long-grant proposals (SV emails their lecturer
-// directly — we removed the in-portal request form per thầy's spec
-// 2026-05-27). Empty `to` lets the SV pick the right address; we pre-fill
-// subject + body so the email writes itself.
-const LECTURER_FALLBACK_EMAIL = "";
+type VpsDevice = {
+  id: string;
+  name: string;
+  device_type: string;
+  model: string;
+};
 
 type Grant = {
   id: string;
@@ -28,7 +29,20 @@ type Grant = {
   device_name: string | null;
 };
 
-function fmt(iso: string) {
+type AccessRequest = {
+  id: string;
+  device_id: string;
+  requested_from: string;
+  requested_to: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  decision_note: string | null;
+  granted_access_id: string | null;
+  created_at: string;
+  device_name: string | null;
+};
+
+function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
@@ -36,21 +50,42 @@ function fmt(iso: string) {
   });
 }
 
+function diffDaysInclusive(fromIso: string, toIso: string) {
+  return Math.max(
+    1,
+    Math.round(
+      (new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000,
+    ) + 1,
+  );
+}
+
 function Inner() {
   const { user } = useUser();
   const router = useRouter();
   const [grants, setGrants] = useState<Grant[]>([]);
+  const [requests, setRequests] = useState<AccessRequest[]>([]);
+  const [vpsList, setVpsList] = useState<VpsDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
   const [session, setSession] = useState<{ data: SessionResult; bookingId: string } | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const r = await fetch(`${API}/vps-access/grants/mine`, { credentials: "include" });
-      if (r.ok) setGrants(await r.json());
+      const [rG, rR, rD] = await Promise.all([
+        fetch(`${API}/vps-access/grants/mine`, { credentials: "include" }),
+        fetch(`${API}/vps-access/requests/mine`, { credentials: "include" }),
+        fetch(`${API}/devices`, { credentials: "include" }),
+      ]);
+      if (rG.ok) setGrants(await rG.json());
+      if (rR.ok) setRequests(await rR.json());
+      if (rD.ok) {
+        const all: VpsDevice[] = await rD.json();
+        setVpsList(all.filter((d) => d.device_type === "vps"));
+      }
     } catch (e) {
       setErr(String(e));
     } finally {
@@ -58,9 +93,6 @@ function Inner() {
     }
   }, []);
 
-  // Admin/lecturer manage VPS access at /admin/vps-access (pending queue, all
-  // grants, direct grant form). The student-facing "my grants" view doesn't
-  // fit their workflow — redirect so the nav link works for every role.
   useEffect(() => {
     if (user && (user.role === "admin" || user.role === "lecturer")) {
       router.replace("/admin/vps-access");
@@ -99,6 +131,13 @@ function Inner() {
     }
   };
 
+  const cancelReq = async (id: string) => {
+    if (!confirm("Huỷ yêu cầu này?")) return;
+    const r = await apiPost(`/vps-access/requests/${id}/cancel`);
+    if (r.ok) refresh();
+    else setErr(`HTTP ${r.status}`);
+  };
+
   const now = Date.now();
   const activeGrants = grants.filter(
     (g) =>
@@ -107,45 +146,34 @@ function Inner() {
       new Date(g.valid_to).getTime() >= now,
   );
   const pastGrants = grants.filter((g) => !activeGrants.includes(g));
-
-  // mailto: builder — pre-fill so SV doesn't have to write the email from
-  // scratch. They still type the recipient (their lecturer's email).
-  const mailtoSubject = encodeURIComponent(
-    `[VJU Lab Portal] Xin proposal quyền VPS dài hạn — ${user.full_name || user.email}`,
-  );
-  const mailtoBody = encodeURIComponent(
-    [
-      "Kính gửi thầy/cô,",
-      "",
-      `Em là ${user.full_name || user.email} (${user.student_code || ""}).`,
-      "",
-      "Em xin proposal được cấp quyền truy cập VPS dài hạn cho mục đích:",
-      "  - Môn / dự án: ",
-      "  - VPS cần dùng: (vd sv21, ai01...)",
-      "  - Khoảng thời gian xin: từ ngày … đến ngày … (tối đa 30 ngày)",
-      "  - Lý do (chạy training nhiều ngày, deploy web, ...): ",
-      "",
-      "Sau khi thầy/cô duyệt, xin cấp trực tiếp tại:",
-      "  https://sv14.bcse-vju.com/admin/vps-access",
-      "",
-      "Em cảm ơn ạ.",
-    ].join("\n"),
-  );
-  const mailtoHref = `mailto:${LECTURER_FALLBACK_EMAIL}?subject=${mailtoSubject}&body=${mailtoBody}`;
+  const pendingRequests = requests.filter((r) => r.status === "pending");
+  const decidedRequests = requests.filter((r) => r.status !== "pending");
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex items-center gap-3">
-        <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-md">
-          <Server className="h-5 w-5" />
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-md">
+            <Server className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Quyền VPS của tôi</h1>
+            <p className="text-sm text-slate-500">
+              Block 6h dùng ở{" "}
+              <a className="underline" href="/devices/vps">
+                /devices/vps
+              </a>
+              . Cần quyền dài hơn 24h → soạn proposal bên dưới.
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Quyền VPS của tôi</h1>
-          <p className="text-sm text-slate-500">
-            Các grant dài hạn đã được giảng viên cấp — kết nối SSH bất cứ lúc nào
-            trong thời hạn.
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowForm((s) => !s)}
+          className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          <Plus className="h-4 w-4" /> Soạn proposal
+        </button>
       </header>
 
       {err && (
@@ -154,31 +182,16 @@ function Inner() {
         </div>
       )}
 
-      {/* CTA — long-grant request flow moved to email (per thầy's spec):
-          no in-portal request form; SV emails lecturer who then grants
-          directly at /admin/vps-access. */}
-      <div className="surface flex flex-col gap-3 border-l-4 border-l-indigo-500 bg-indigo-50/70 p-5 md:flex-row md:items-center md:justify-between dark:bg-indigo-950/30">
-        <div className="space-y-1">
-          <h2 className="text-base font-bold text-indigo-900 dark:text-indigo-100">
-            Cần quyền VPS dài hơn 24h?
-          </h2>
-          <p className="text-sm text-indigo-800 dark:text-indigo-200">
-            Tối đa 24h dùng block-booking tự phục vụ trên trang{" "}
-            <a className="underline hover:no-underline" href="/devices/vps">
-              /devices/vps
-            </a>
-            . Nhu cầu dài hơn (tối đa {MAX_DAYS} ngày) → gửi email cho giảng viên
-            phụ trách, kèm rõ lý do + khoảng thời gian.
-          </p>
-        </div>
-        <a
-          href={mailtoHref}
-          className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-indigo-700"
-        >
-          <Mail className="h-4 w-4" />
-          Soạn email proposal
-        </a>
-      </div>
+      {showForm && (
+        <ProposalForm
+          vpsList={vpsList}
+          onClose={() => setShowForm(false)}
+          onCreated={() => {
+            setShowForm(false);
+            refresh();
+          }}
+        />
+      )}
 
       {loading ? (
         <div className="surface h-32 animate-pulse" />
@@ -186,7 +199,7 @@ function Inner() {
         <>
           <Section title="Đang có quyền" count={activeGrants.length}>
             {activeGrants.length === 0 ? (
-              <Empty msg="Chưa có quyền VPS active dài hạn. Dùng block-booking ở /devices/vps cho nhu cầu ngắn, hoặc gửi email proposal ở trên cho dài hạn." />
+              <Empty msg="Chưa có grant dài hạn active. Block 6h ngắn dùng ở /devices/vps; cần dài hơn thì soạn proposal ở trên." />
             ) : (
               activeGrants.map((g) => (
                 <ActiveGrantCard
@@ -199,8 +212,16 @@ function Inner() {
             )}
           </Section>
 
+          {pendingRequests.length > 0 && (
+            <Section title="Proposal đang chờ duyệt" count={pendingRequests.length}>
+              {pendingRequests.map((r) => (
+                <RequestRow key={r.id} req={r} onCancel={() => cancelReq(r.id)} />
+              ))}
+            </Section>
+          )}
+
           {pastGrants.length > 0 && (
-            <Section title="Lịch sử quyền" count={pastGrants.length}>
+            <Section title="Lịch sử grant" count={pastGrants.length}>
               {pastGrants.map((g) => (
                 <div
                   key={g.id}
@@ -209,11 +230,19 @@ function Inner() {
                   <div>
                     <p className="font-semibold">{g.device_name}</p>
                     <p className="text-xs text-slate-500">
-                      {fmt(g.valid_from)} → {fmt(g.valid_to)}
+                      {fmtDate(g.valid_from)} → {fmtDate(g.valid_to)}
                       {g.revoked_at && " · Đã thu hồi"}
                     </p>
                   </div>
                 </div>
+              ))}
+            </Section>
+          )}
+
+          {decidedRequests.length > 0 && (
+            <Section title="Proposal đã xử lý" count={decidedRequests.length}>
+              {decidedRequests.map((r) => (
+                <RequestRow key={r.id} req={r} />
               ))}
             </Section>
           )}
@@ -284,7 +313,7 @@ function ActiveGrantCard({
         </p>
         <p className="text-xs text-slate-500">
           <Clock className="mr-1 inline h-3 w-3" />
-          {fmt(grant.valid_from)} → {fmt(grant.valid_to)} · còn {daysLeft} ngày
+          {fmtDate(grant.valid_from)} → {fmtDate(grant.valid_to)} · còn {daysLeft} ngày
         </p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{grant.reason}</p>
       </div>
@@ -298,6 +327,218 @@ function ActiveGrantCard({
         {busy ? "Đang lấy..." : "Kết nối SSH"}
       </button>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: AccessRequest["status"] }) {
+  const cfg = {
+    pending: { label: "Chờ duyệt", cls: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" },
+    approved: { label: "Đã duyệt", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" },
+    rejected: { label: "Từ chối", cls: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200" },
+    cancelled: { label: "Đã huỷ", cls: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  }[status];
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+function RequestRow({ req, onCancel }: { req: AccessRequest; onCancel?: () => void }) {
+  return (
+    <div className="surface flex flex-col gap-2 p-3 md:flex-row md:items-start md:justify-between">
+      <div className="flex-1">
+        <p className="text-sm">
+          <span className="font-semibold">{req.device_name}</span>{" "}
+          <StatusBadge status={req.status} />
+        </p>
+        <p className="text-xs text-slate-500">
+          {fmtDate(req.requested_from)} → {fmtDate(req.requested_to)} (
+          {diffDaysInclusive(req.requested_from, req.requested_to)} ngày)
+        </p>
+        <p className="text-xs text-slate-600 dark:text-slate-400">&ldquo;{req.reason}&rdquo;</p>
+        {req.decision_note && (
+          <p className="text-xs italic text-slate-500">GV: {req.decision_note}</p>
+        )}
+      </div>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="self-start inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          <X className="h-3 w-3" /> Huỷ
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProposalForm({
+  vpsList,
+  onClose,
+  onCreated,
+}: {
+  vpsList: VpsDevice[];
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const today = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+  const [deviceId, setDeviceId] = useState("");
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const days = useMemo(() => {
+    if (!from || !to) return 0;
+    return Math.max(
+      1,
+      Math.round(
+        (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000,
+      ) + 1,
+    );
+  }, [from, to]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    if (days > MAX_DAYS) {
+      setMsg(`× Tối đa ${MAX_DAYS} ngày liên tiếp.`);
+      return;
+    }
+    if (reason.trim().length < 30) {
+      setMsg("× Mục đích cần ≥ 30 ký tự để GV có thông tin duyệt.");
+      return;
+    }
+    setBusy(true);
+    const payload = {
+      device_id: deviceId,
+      requested_from: new Date(`${from}T00:00:00`).toISOString(),
+      requested_to: new Date(`${to}T23:59:59`).toISOString(),
+      reason: reason.trim(),
+    };
+    const r = await apiPost("/vps-access/requests", payload);
+    setBusy(false);
+    if (r.ok) {
+      setMsg("✓ Đã gửi proposal + email tới GV. Đợi phản hồi.");
+      setTimeout(() => onCreated(), 1200);
+    } else {
+      const e2 = await r.json().catch(() => ({}));
+      setMsg(`× ${e2?.detail?.message || e2?.detail?.code || `HTTP ${r.status}`}`);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={submit}
+      className="surface flex flex-col gap-3 border-l-4 border-l-indigo-500 p-5"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold">Soạn proposal xin VPS dài hạn</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+        Proposal sẽ được gửi qua portal + email đến giảng viên phụ trách. Em ghi
+        rõ mục đích sử dụng để thầy/cô duyệt nhanh.
+      </p>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-semibold">VPS muốn dùng</span>
+        <select
+          required
+          value={deviceId}
+          onChange={(e) => setDeviceId(e.target.value)}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+        >
+          <option value="">— Chọn VPS —</option>
+          {vpsList.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name} — {v.model}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">Từ ngày</span>
+          <input
+            type="date"
+            required
+            value={from}
+            min={today}
+            onChange={(e) => setFrom(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-semibold">
+            Đến ngày{" "}
+            <span className="font-normal text-slate-400">
+              ({days} ngày · tối đa {MAX_DAYS})
+            </span>
+          </span>
+          <input
+            type="date"
+            required
+            value={to}
+            min={from}
+            onChange={(e) => setTo(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+          />
+        </label>
+      </div>
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-semibold">
+          Mục đích sử dụng — chi tiết{" "}
+          <span className="font-normal text-slate-400">
+            ({reason.trim().length} / 500 ký tự, tối thiểu 30)
+          </span>
+        </span>
+        <textarea
+          required
+          minLength={30}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder={
+            "Ví dụ:\n- Môn / dự án: Đồ án tốt nghiệp \"AI nhận diện cây trồng\"\n- Sản phẩm cần chạy: huấn luyện YOLOv8 trên tập 50K ảnh, kéo dài ~3 ngày\n- Vì sao cần block dài: huấn luyện liên tục, không thể chia nhỏ\n- Dự kiến deliverable: model weights + báo cáo benchmark"
+          }
+          className="min-h-[140px] rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="submit"
+          disabled={busy || days > MAX_DAYS || reason.trim().length < 30}
+          className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {busy ? "Đang gửi..." : "Gửi proposal"}
+        </button>
+        {msg && (
+          <p
+            className={`text-xs ${msg.startsWith("✓") ? "text-emerald-600" : "text-rose-600"}`}
+          >
+            {msg.startsWith("✓") ? (
+              <CheckCircle2 className="mr-1 inline h-3 w-3" />
+            ) : (
+              <XCircle className="mr-1 inline h-3 w-3" />
+            )}
+            {msg}
+          </p>
+        )}
+      </div>
+    </form>
   );
 }
 

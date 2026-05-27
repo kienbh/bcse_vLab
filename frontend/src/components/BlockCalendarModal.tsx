@@ -8,10 +8,10 @@ import { apiPost } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
-const BLOCKS_PER_DAY = 6;
-const BLOCK_HOURS = 4;
+const BLOCKS_PER_DAY = 4;
+const BLOCK_HOURS = 6;
 const DAYS_AHEAD = 7;
-const MAX_BLOCKS_PER_BOOKING = 6; // 24h ceiling, matches backend MAX_BLOCKS_AUTO
+const MAX_BLOCKS_PER_BOOKING = 4; // 24h ceiling, matches backend MAX_BLOCKS_AUTO
 
 export type BlockBooking = {
   id: string;

@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: SecretStr = SecretStr("")
     SMTP_FROM: str = "lab-noreply@vju.edu.vn"
     SMTP_FROM_NAME: str = "VJU Lab Portal"
+    # Comma-separated list of lecturer emails who get a notification when a
+    # student submits a VPS-access proposal. Empty → no email (still creates
+    # the in-portal access_request row, which the lecturer can see at
+    # /admin/vps-access).
+    LECTURER_NOTIFICATION_EMAIL: str = "buihuykien1311@gmail.com"
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 100
