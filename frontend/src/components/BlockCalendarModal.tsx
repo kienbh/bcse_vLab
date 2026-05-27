@@ -301,16 +301,17 @@ export function BlockCalendarModal({
           <p className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              <strong>Click 1 block để chọn, click block thứ 2 cùng ngày để đặt dải.</strong>{" "}
-              Đặt được block hiện tại HOẶC tương lai (tối đa{" "}
-              {MAX_BLOCKS_PER_BOOKING} block = {MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h/lần).
+              <strong>Mỗi SV chỉ giữ 1 lịch tại 1 lúc.</strong> Click 1 block để
+              chọn, click block thứ 2 cùng ngày để đặt dải (tối đa{" "}
+              {MAX_BLOCKS_PER_BOOKING} block = {MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h).
+              Đến giờ là vào dùng. Lịch chạy xong (hoặc huỷ) mới đặt được lịch mới.
               Cần dài hơn 24h?{" "}
               <Link
                 href="/vps-access"
                 className="font-bold underline hover:text-amber-700"
                 onClick={onClose}
               >
-                Email giảng viên xin grant
+                Soạn proposal cho GV
               </Link>
               .
             </span>

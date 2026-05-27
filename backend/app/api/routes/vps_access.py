@@ -346,6 +346,7 @@ def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
         "EXCEEDS_AUTO_LIMIT": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "PAST_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
         "BLOCK_TAKEN": status.HTTP_409_CONFLICT,
+        "ALREADY_HOLDING_BLOCK": status.HTTP_409_CONFLICT,
         "NOT_AN_AUTO_BLOCK": status.HTTP_409_CONFLICT,
         "NOT_CANCELLABLE": status.HTTP_409_CONFLICT,
         "ALREADY_ENDED": status.HTTP_409_CONFLICT,

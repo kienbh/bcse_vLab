@@ -41,10 +41,10 @@ from app.services.device_prober import probe_tcp
 
 BLOCK_HOURS = 6
 BLOCKS_PER_DAY = 4
-# 2026-05-27 (revised twice): per thầy's clarification — original spec was
-# 6h/block × 4 blocks/day (UTC 00/06/12/18). SV can pick any free block in
-# present or future, up to 4 consecutive (24h) per booking. Multiple separate
-# bookings per SV allowed; only GIST EXCLUDE + VPS_OFFLINE guards apply.
+# 2026-05-27 (final): 6h/block × 4 blocks/day (UTC 00/06/12/18). SV picks any
+# free block in present or future, up to 4 consecutive (24h) per booking —
+# BUT may only hold ONE active/future booking row at a time (no hoarding
+# multiple spots). After their booking ends they can book again.
 # Longer than 24h continuous → email lecturer for a long grant.
 MAX_BLOCKS_AUTO = 4
 
@@ -108,6 +108,29 @@ async def _ensure_vps(db: AsyncSession, device_id: UUID) -> Device:
     return device
 
 
+async def _existing_auto_booking_anywhere(
+    db: AsyncSession, *, student_id: UUID
+) -> Booking | None:
+    """1 SV = 1 booking row max (per thầy's spec 2026-05-27 final). Search
+    across ALL VPS for the student's current/future auto booking. Returns
+    the offending booking so the UI can quote it back in the error."""
+    now = _utcnow()
+    row = await db.execute(
+        select(Booking)
+        .where(
+            Booking.user_id == student_id,
+            Booking.granted_via == BookingGrantedVia.AUTO,
+            Booking.status.in_(
+                [BookingStatus.SCHEDULED, BookingStatus.ACTIVE]
+            ),
+            Booking.end_time > now,
+        )
+        .order_by(Booking.start_time.asc())
+        .limit(1)
+    )
+    return row.scalar_one_or_none()
+
+
 def current_block_window(now: datetime | None = None) -> tuple[datetime, datetime]:
     """The 4h block containing `now` (default = utcnow), aligned to
     00/04/08/12/16/20 UTC. Used to enforce "book only the current block"."""
@@ -157,6 +180,20 @@ async def book_block(
     # and any future block are fine — flexibility per thầy's 2026-05-27 update.
     if end_time <= _utcnow() - timedelta(minutes=5):
         raise BlockBookingError("PAST_BLOCK", "Block đã kết thúc rồi")
+
+    # Hoarding guard — 1 SV holds at most 1 booking row at a time. After their
+    # current one ends they're free to book again.
+    existing = await _existing_auto_booking_anywhere(db, student_id=student.id)
+    if existing is not None:
+        raise BlockBookingError(
+            "ALREADY_HOLDING_BLOCK",
+            "Bạn đã có 1 lịch đang giữ chỗ. Đợi lịch hiện tại kết thúc "
+            "(hoặc huỷ) rồi đặt mới — mỗi SV chỉ giữ 1 chỗ tại 1 lúc.",
+            existing_booking_id=str(existing.id),
+            existing_device_id=str(existing.device_id),
+            existing_start_time=existing.start_time.isoformat(),
+            existing_end_time=existing.end_time.isoformat(),
+        )
 
     booking = Booking(
         user_id=student.id,
