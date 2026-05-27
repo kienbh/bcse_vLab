@@ -22,6 +22,7 @@ from app.core.db import get_db
 from app.models import (
     AccessRequest,
     AccessRequestStatus,
+    Booking,
     Device,
     DeviceType,
     SpecialAccess,
@@ -32,10 +33,13 @@ from app.schemas import (
     AccessRequestCreate,
     AccessRequestDecide,
     AccessRequestOut,
+    BlockBookingCreate,
+    BlockBookingOut,
     VpsGrantCreate,
     VpsGrantOut,
 )
 from app.services import vps_access as svc
+from app.services import vps_block_booking as block_svc
 from app.services.audit import audit_log
 
 router = APIRouter(prefix="/vps-access", tags=["vps-access"])
@@ -262,19 +266,40 @@ async def connect_to_vps(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AccessIssueResponse:
-    """Mint (or return) a gateway session for the student's active VPS grant.
+    """Mint (or return) a gateway session for the student's VPS access.
 
-    Reuses the M5.8 gateway pipeline: we auto-create a Booking spanning the
-    SA window, then call the existing `_issue_or_rotate` which mints the
-    bcrypt-hashed password and ties it to the booking.
+    Two valid access paths, checked in order:
+      1. Active auto-booked block (self-service 4h slot, currently running).
+         Booking already exists, we just mint the gateway session on it.
+      2. Long-running SpecialAccess (≤30-day proposal-approved grant).
+         We auto-create a session-spanning Booking (existing behaviour).
+
+    No path → 403 with a hint pointing to the booking calendar.
     """
+    # Path 1: live block-booking
+    active_block = await block_svc.active_auto_block_for(
+        db, student_id=user.id, device_id=device_id
+    )
+    if active_block is not None:
+        return await _issue_or_rotate(
+            db,
+            booking=active_block,
+            user=user,
+            request=request,
+            action="gateway.access.issue.vps.block",
+        )
+
+    # Path 2: long grant
     sa = await svc.active_grant_for(db, student_id=user.id, device_id=device_id)
     if sa is None:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail={
                 "code": "NO_ACTIVE_GRANT",
-                "hint": "Bạn chưa được cấp quyền truy cập VPS này, hãy gửi yêu cầu hoặc liên hệ giảng viên.",
+                "hint": (
+                    "Bạn chưa có block nào đang chạy trên VPS này. "
+                    "Mở lịch để đặt block 4h, hoặc gửi proposal cho block dài (>24h)."
+                ),
             },
         )
     booking = await svc.get_or_create_session_booking(db, student=user, sa=sa)
@@ -285,6 +310,164 @@ async def connect_to_vps(
         request=request,
         action="gateway.access.issue.vps",
     )
+
+
+# ---------------------------------------------------------------------------
+# Block booking — self-service 4h slots with round-robin fairness
+# ---------------------------------------------------------------------------
+
+
+def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
+    mapping = {
+        "DEVICE_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+        "BOOKING_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+        "NOT_A_VPS": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "NOT_BLOCK_ALIGNED": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "INVALID_TIME_RANGE": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "DURATION_NOT_MULTIPLE_OF_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "ZERO_BLOCKS": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "EXCEEDS_AUTO_LIMIT": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "PAST_BLOCK": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "BLOCK_TAKEN": status.HTTP_409_CONFLICT,
+        "QUEUED_AHEAD": status.HTTP_409_CONFLICT,
+        "NOT_AN_AUTO_BLOCK": status.HTTP_409_CONFLICT,
+        "NOT_CANCELLABLE": status.HTTP_409_CONFLICT,
+        "ALREADY_ENDED": status.HTTP_409_CONFLICT,
+    }
+    return HTTPException(
+        mapping.get(err.code, status.HTTP_400_BAD_REQUEST),
+        detail={"code": err.code, "message": str(err), **err.details},
+    )
+
+
+def _block_out(b: Booking, *, owner: User | None, viewer_id: UUID) -> BlockBookingOut:
+    return BlockBookingOut(
+        id=b.id,
+        user_id=b.user_id,
+        device_id=b.device_id,
+        start_time=b.start_time,
+        end_time=b.end_time,
+        status=b.status.value,
+        granted_via=b.granted_via.value,
+        student_email=owner.email if owner else None,
+        student_name=owner.full_name if owner else None,
+        is_mine=(b.user_id == viewer_id),
+    )
+
+
+@router.post("/{device_id}/blocks", response_model=BlockBookingOut, status_code=status.HTTP_201_CREATED)
+async def book_block(
+    device_id: UUID,
+    payload: BlockBookingCreate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> BlockBookingOut:
+    """Self-book a 4h-aligned block on a VPS (up to 6 blocks = 24h)."""
+    try:
+        booking = await block_svc.book_block(
+            db,
+            student=user,
+            device_id=device_id,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+        )
+    except block_svc.BlockBookingError as e:
+        raise _block_svc_to_http(e)
+    await audit_log(
+        db,
+        actor=user,
+        action="vps_block.book",
+        target_type="booking",
+        target_id=str(booking.id),
+        details={
+            "device_id": str(device_id),
+            "start_time": booking.start_time.isoformat(),
+            "end_time": booking.end_time.isoformat(),
+        },
+        request=request,
+    )
+    await db.commit()
+    await db.refresh(booking)
+    return _block_out(booking, owner=user, viewer_id=user.id)
+
+
+@router.delete("/{device_id}/blocks/{booking_id}")
+async def cancel_block(
+    device_id: UUID,
+    booking_id: UUID,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        booking = await block_svc.cancel_block(db, student=user, booking_id=booking_id)
+    except block_svc.BlockBookingError as e:
+        raise _block_svc_to_http(e)
+    await audit_log(
+        db,
+        actor=user,
+        action="vps_block.cancel",
+        target_type="booking",
+        target_id=str(booking.id),
+        request=request,
+    )
+    await db.commit()
+    return {"status": "cancelled", "booking_id": str(booking.id)}
+
+
+@router.get("/{device_id}/blocks", response_model=list[BlockBookingOut])
+async def list_blocks(
+    device_id: UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(default=7, ge=1, le=30),
+) -> list[BlockBookingOut]:
+    """All scheduled+active bookings on this VPS for the next N days —
+    used to paint the calendar. Includes auto blocks AND any spans created
+    from SpecialAccess so students see "this VPS is in use" even outside
+    their own bookings."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    rows = await block_svc.schedule_for_device(
+        db, device_id=device_id, range_from=now, range_to=now + timedelta(days=days)
+    )
+    if not rows:
+        return []
+    user_ids = {b.user_id for b in rows}
+    owners = {
+        u.id: u
+        for u in (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars()
+    }
+    return [_block_out(b, owner=owners.get(b.user_id), viewer_id=user.id) for b in rows]
+
+
+@router.get("/blocks/mine", response_model=list[BlockBookingOut])
+async def my_blocks(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[BlockBookingOut]:
+    """SV's own future-or-active auto blocks across all VPS — for /vps-access page."""
+    from datetime import datetime, timezone
+    from app.models import BookingGrantedVia, BookingStatus
+    now = datetime.now(timezone.utc)
+    rows = list(
+        (
+            await db.execute(
+                select(Booking)
+                .where(
+                    Booking.user_id == user.id,
+                    Booking.granted_via == BookingGrantedVia.AUTO,
+                    Booking.status.in_(
+                        [BookingStatus.SCHEDULED, BookingStatus.ACTIVE]
+                    ),
+                    Booking.end_time > now,
+                )
+                .order_by(Booking.start_time.asc())
+            )
+        ).scalars()
+    )
+    return [_block_out(b, owner=user, viewer_id=user.id) for b in rows]
 
 
 # ---------------------------------------------------------------------------

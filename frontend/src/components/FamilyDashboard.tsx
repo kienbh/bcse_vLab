@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
+import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
@@ -160,6 +161,8 @@ function FamilyInner({
     data: SessionResult;
     bookingId: string;
   } | null>(null);
+  // VPS-only: which device the user is currently viewing the block calendar of.
+  const [calendarFor, setCalendarFor] = useState<Device | null>(null);
   // VPS-only: which devices the current user has an ACTIVE long-running grant on.
   // Keyed by device_id, value is the grant valid_to ISO so the card can show "còn N ngày".
   // `null` = not yet loaded → cards render a neutral "checking" state instead of
@@ -262,10 +265,11 @@ function FamilyInner({
     }
   };
 
-  // For VPS family: book button → /vps-access page so the student can submit a request.
-  const requestVps = () => {
-    window.location.href = "/vps-access";
-  };
+  // For VPS family: book button → opens the block calendar modal.
+  // The "YÊU CẦU QUYỀN" button on a card now means "open scheduling calendar"
+  // for this VPS — the legacy multi-day proposal flow lives at /vps-access
+  // and is linked from inside the calendar's info banner.
+  const openCalendar = (d: Device) => setCalendarFor(d);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -329,7 +333,7 @@ function FamilyInner({
         renderByTier(
           devices,
           family,
-          family === "vps" ? (_d) => requestVps() : setPicked,
+          family === "vps" ? openCalendar : setPicked,
           connect,
           family === "vps"
             ? { vpsGrants: vpsGrants ?? new Map(), grantsLoaded: vpsGrants !== null, onVpsConnect: connectVps }
@@ -355,6 +359,14 @@ function FamilyInner({
             setSession({ data: next, bookingId: session.bookingId })
           }
           onClose={() => setSession(null)}
+        />
+      )}
+      {calendarFor && (
+        <BlockCalendarModal
+          deviceId={calendarFor.id}
+          deviceName={calendarFor.name}
+          onClose={() => setCalendarFor(null)}
+          onChanged={load}
         />
       )}
     </div>

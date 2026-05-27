@@ -7,6 +7,7 @@ from app.schemas.access import (
     VpsGrantOut,
 )
 from app.schemas.booking import BookingCreate, BookingOut
+from app.schemas.vps_block import BlockBookingCreate, BlockBookingOut
 from app.schemas.class_ import (
     AssignmentCreate,
     ClassCreate,
@@ -47,6 +48,8 @@ __all__ = [
     "AccessRequestOut",
     "VpsGrantCreate",
     "VpsGrantOut",
+    "BlockBookingCreate",
+    "BlockBookingOut",
     "UserOut",
     "DeviceCreate",
     "DeviceOut",

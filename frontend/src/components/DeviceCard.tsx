@@ -574,14 +574,19 @@ export function DeviceCard({
                 </p>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={() => onBook(device)}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
-              >
-                <Sparkles className="h-4 w-4" />
-                YÊU CẦU QUYỀN
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => onBook(device)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+                >
+                  <Calendar className="h-4 w-4" />
+                  ĐẶT BLOCK
+                </button>
+                <p className="text-center text-[10px] text-slate-500">
+                  Block 4h tự-phục-vụ · cần dài hơn → proposal
+                </p>
+              </>
             )
           ) : (
             state === "available" && (
