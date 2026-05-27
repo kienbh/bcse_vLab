@@ -607,6 +607,28 @@ export function DeviceCard({
               >
                 Bạn đang giữ block trên kit khác
               </button>
+            ) : state === "offline" ? (
+              // Hoà Lạc cúp điện → backend cũng từ chối book khi probe TCP
+              // VPS:22 fail (VPS_OFFLINE). UI phản ánh trước để SV không
+              // bấm hụt.
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="VPS không phản hồi — có thể mất điện. Thử lại sau."
+              >
+                <WifiOff className="h-4 w-4" />
+                VPS đang offline
+              </button>
+            ) : state === "maintenance" ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              >
+                <Activity className="h-4 w-4" />
+                Đang bảo trì
+              </button>
             ) : (
               <>
                 <button

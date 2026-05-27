@@ -336,6 +336,8 @@ def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
         "NOT_AN_AUTO_BLOCK": status.HTTP_409_CONFLICT,
         "NOT_CANCELLABLE": status.HTTP_409_CONFLICT,
         "ALREADY_ENDED": status.HTTP_409_CONFLICT,
+        "VPS_OFFLINE": status.HTTP_503_SERVICE_UNAVAILABLE,
+        "VPS_MAINTENANCE": status.HTTP_503_SERVICE_UNAVAILABLE,
     }
     return HTTPException(
         mapping.get(err.code, status.HTTP_400_BAD_REQUEST),

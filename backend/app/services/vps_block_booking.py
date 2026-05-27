@@ -32,9 +32,11 @@ from app.models import (
     BookingGrantedVia,
     BookingStatus,
     Device,
+    DeviceStatus,
     DeviceType,
     User,
 )
+from app.services.device_prober import probe_tcp
 
 
 BLOCK_HOURS = 4
@@ -152,6 +154,23 @@ async def book_block(
     """
     device = await _ensure_vps(db, device_id)
     _validate_window(start_time, end_time)
+
+    # Liveness check — Hoà Lạc loses power often, refuse booking on a dead VPS
+    # so a student can't reserve a block they won't be able to SSH into. Reuses
+    # the device_prober's TCP-connect probe (3s timeout, no auth).
+    if device.status == DeviceStatus.MAINTENANCE:
+        raise BlockBookingError(
+            "VPS_MAINTENANCE",
+            f"VPS {device.name} đang bảo trì, không đặt được",
+        )
+    is_up = await probe_tcp(str(device.internal_ip), device.ssh_port)
+    if not is_up:
+        raise BlockBookingError(
+            "VPS_OFFLINE",
+            f"VPS {device.name} hiện không phản hồi (có thể mất điện / "
+            f"đang khởi động lại). Thử lại sau ít phút.",
+            device_name=device.name,
+        )
 
     # Window MUST be the current block, not a future or past one.
     cur_start, cur_end = current_block_window()
