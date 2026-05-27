@@ -11,6 +11,7 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const BLOCKS_PER_DAY = 6;
 const BLOCK_HOURS = 4;
 const DAYS_AHEAD = 7;
+const MAX_BLOCKS_PER_BOOKING = 6; // 24h ceiling, matches backend MAX_BLOCKS_AUTO
 
 export type BlockBooking = {
   id: string;
@@ -63,12 +64,10 @@ function fmtDayHeader(d: Date): { wd: string; date: string } {
 
 type CellState =
   | "past"
-  | "current-free"  // the block in progress, free → student can book NOW
-  | "current-mine"  // I'm the one holding this current block
-  | "current-taken" // someone else has this current block
-  | "future-free"   // visible for planning but not bookable yet
-  | "future-taken"  // someone else booked ahead (only possible for grants)
-  | "future-mine"; // shouldn't happen under single-block rule; defensive
+  | "free"        // free + in present/future, clickable to book
+  | "mine-auto"   // SV's own auto block-booking, clickable to cancel
+  | "mine-grant"  // SV has a long lecturer-granted access spanning this slot
+  | "taken";      // someone else booked / has a grant — read-only
 
 export function BlockCalendarModal({
   deviceId,
@@ -80,9 +79,12 @@ export function BlockCalendarModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Confirm dialog state — either a book or a cancel action waiting for OK.
+  // Range selection: first click sets the anchor, second click in the SAME day
+  // and later block confirms. ESC or click outside resets.
+  const [rangeAnchor, setRangeAnchor] = useState<{ day: Date; blockIdx: number } | null>(null);
+  // Confirm dialog state — either a book (range) or a cancel action.
   const [confirmAction, setConfirmAction] = useState<
-    | { kind: "book"; day: Date; blockIdx: number }
+    | { kind: "book"; day: Date; fromIdx: number; toIdx: number }
     | { kind: "cancel"; booking: BlockBooking; blockIdx: number; day: Date }
     | null
   >(null);
@@ -151,45 +153,87 @@ export function BlockCalendarModal({
 
   const cellState = useCallback(
     (day: Date, blockIdx: number): { state: CellState; booking?: BlockBooking } => {
-      const startT = blockStart(day, blockIdx).getTime();
       const endT = blockEnd(day, blockIdx).getTime();
       const nowMs = Date.now();
-      const isCurrent = startT <= nowMs && nowMs < endT;
-      const isPast = endT <= nowMs;
-
+      if (endT <= nowMs) {
+        const key = `${day.toISOString().slice(0, 10)}|${blockIdx}`;
+        return { state: "past", booking: occupancy.get(key) };
+      }
       const key = `${day.toISOString().slice(0, 10)}|${blockIdx}`;
       const b = occupancy.get(key);
-
-      if (isPast) return { state: "past", booking: b };
-      if (isCurrent) {
-        if (!b) return { state: "current-free" };
-        return { state: b.is_mine ? "current-mine" : "current-taken", booking: b };
+      if (!b) return { state: "free" };
+      if (b.is_mine) {
+        // Auto block-bookings can be cancelled from this UI; lecturer-granted
+        // long access (granted_via='special_access') is read-only here —
+        // student would email the lecturer to release it.
+        return {
+          state: b.granted_via === "auto" ? "mine-auto" : "mine-grant",
+          booking: b,
+        };
       }
-      // future
-      if (!b) return { state: "future-free" };
-      return { state: b.is_mine ? "future-mine" : "future-taken", booking: b };
+      return { state: "taken", booking: b };
     },
     [occupancy],
   );
 
-  const cellKey = (day: Date, blockIdx: number) =>
-    `${day.toISOString().slice(0, 10)}|${blockIdx}`;
-
   const onCellClick = (day: Date, blockIdx: number) => {
     if (busy || confirmAction) return;
     const { state, booking } = cellState(day, blockIdx);
-    if (state === "current-free") {
-      setConfirmAction({ kind: "book", day, blockIdx });
-    } else if (state === "current-mine" && booking) {
+
+    if (state === "mine-auto" && booking) {
+      setRangeAnchor(null);
       setConfirmAction({ kind: "cancel", booking, day, blockIdx });
+      return;
     }
-    // past / future / taken → no action
+    if (state !== "free") {
+      // past / taken / mine-grant → not clickable
+      return;
+    }
+
+    // free cell — range selection
+    if (rangeAnchor === null) {
+      setRangeAnchor({ day, blockIdx });
+      return;
+    }
+    const sameDay =
+      rangeAnchor.day.toISOString().slice(0, 10) === day.toISOString().slice(0, 10);
+    if (!sameDay) {
+      // different day → reset anchor to the new cell
+      setRangeAnchor({ day, blockIdx });
+      return;
+    }
+    const fromIdx = Math.min(rangeAnchor.blockIdx, blockIdx);
+    const toIdx = Math.max(rangeAnchor.blockIdx, blockIdx);
+    // Sanity: every block in [from, to] must be free
+    for (let i = fromIdx; i <= toIdx; i++) {
+      if (cellState(day, i).state !== "free") {
+        setErr("Dải chọn có block đã có người đặt — hãy chọn lại.");
+        setRangeAnchor(null);
+        return;
+      }
+    }
+    const span = toIdx - fromIdx + 1;
+    if (span > MAX_BLOCKS_PER_BOOKING) {
+      setErr(
+        `Tối đa ${MAX_BLOCKS_PER_BOOKING} block/lần (${MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h). ` +
+          `Cần dài hơn → email giảng viên xin grant.`,
+      );
+      setRangeAnchor(null);
+      return;
+    }
+    setRangeAnchor(null);
+    setConfirmAction({ kind: "book", day, fromIdx, toIdx });
   };
 
   const submitBook = async () => {
     if (!confirmAction || confirmAction.kind !== "book") return;
     setBusy(true);
-    const r = await apiPost(`/vps-access/${deviceId}/blocks/current`);
+    const startISO = blockStart(confirmAction.day, confirmAction.fromIdx).toISOString();
+    const endISO = blockEnd(confirmAction.day, confirmAction.toIdx).toISOString();
+    const r = await apiPost(`/vps-access/${deviceId}/blocks`, {
+      start_time: startISO,
+      end_time: endISO,
+    });
     setBusy(false);
     if (r.ok) {
       setConfirmAction(null);
@@ -257,16 +301,16 @@ export function BlockCalendarModal({
           <p className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              <strong>Chỉ click được block đang chạy bây giờ.</strong> Mỗi SV
-              giữ tối đa 1 block tại 1 thời điểm trên toàn hệ thống VPS.
-              Block tương lai chỉ để xem trước — đợi đến giờ mới đặt được.
+              <strong>Click 1 block để chọn, click block thứ 2 cùng ngày để đặt dải.</strong>{" "}
+              Đặt được block hiện tại HOẶC tương lai (tối đa{" "}
+              {MAX_BLOCKS_PER_BOOKING} block = {MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h/lần).
               Cần dài hơn 24h?{" "}
               <Link
                 href="/vps-access"
                 className="font-bold underline hover:text-amber-700"
                 onClick={onClose}
               >
-                Email giảng viên xin proposal
+                Email giảng viên xin grant
               </Link>
               .
             </span>
@@ -287,6 +331,19 @@ export function BlockCalendarModal({
             </div>
           ) : (
             <>
+              {rangeAnchor && (
+                <div className="mb-3 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
+                  ✏️ Đã chọn block đầu ({fmtBlockLabel(rangeAnchor.blockIdx)}, {fmtDayHeader(rangeAnchor.day).date}).
+                  Click block thứ 2 cùng ngày (sau hoặc trước cũng được) để đặt dải, hoặc click lại block đầu để chỉ đặt 1 block.{" "}
+                  <button
+                    type="button"
+                    onClick={() => setRangeAnchor(null)}
+                    className="ml-1 font-bold underline"
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+              )}
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
@@ -324,9 +381,12 @@ export function BlockCalendarModal({
                         </td>
                         {days.map((d, di) => {
                           const { state, booking } = cellState(d, idx);
-                          const clickable =
-                            state === "current-free" || state === "current-mine";
-                          const styles = cellStyle(state);
+                          const clickable = state === "free" || state === "mine-auto";
+                          const isAnchor =
+                            rangeAnchor !== null &&
+                            rangeAnchor.day.toISOString().slice(0, 10) === d.toISOString().slice(0, 10) &&
+                            rangeAnchor.blockIdx === idx;
+                          const styles = cellStyle(state, isAnchor);
                           const label = cellLabel(state, booking);
                           return (
                             <td
@@ -348,10 +408,10 @@ export function BlockCalendarModal({
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                <Legend color="bg-emerald-500 ring-2 ring-emerald-300" label="Block ĐANG CHẠY — trống, click để đặt" />
-                <Legend color="bg-indigo-500 ring-2 ring-indigo-300" label="Block của bạn — click để huỷ" />
-                <Legend color="bg-rose-200 dark:bg-rose-900" label="Block đang chạy — SV khác giữ" />
-                <Legend color="bg-slate-200" label="Tương lai — chỉ xem" />
+                <Legend color="bg-emerald-500" label="Trống — click để đặt" />
+                <Legend color="bg-indigo-500" label="Bạn đặt (auto) — click huỷ" />
+                <Legend color="bg-violet-300 dark:bg-violet-800" label="Bạn có grant từ GV" />
+                <Legend color="bg-rose-300 dark:bg-rose-900" label="SV khác giữ" />
                 <Legend color="bg-slate-100 opacity-50" label="Đã qua" />
               </div>
             </>
@@ -373,23 +433,22 @@ export function BlockCalendarModal({
   );
 }
 
-function cellStyle(state: CellState): string {
+function cellStyle(state: CellState, isAnchor = false): string {
+  if (isAnchor) {
+    return "bg-amber-300 border-amber-500 text-amber-950 ring-2 ring-amber-500 dark:bg-amber-700 dark:border-amber-400 dark:text-amber-50";
+  }
   switch (state) {
     case "past":
       return "bg-slate-100 border-slate-200 opacity-40 dark:bg-slate-900/50 dark:border-slate-800 text-slate-500";
-    case "current-free":
-      return "bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-600 ring-2 ring-emerald-300 ring-offset-1 dark:ring-emerald-700";
-    case "current-mine":
-      return "bg-indigo-500 border-indigo-600 text-white hover:bg-rose-500 ring-2 ring-indigo-300 ring-offset-1 dark:ring-indigo-700";
-    case "current-taken":
-      return "bg-rose-200 border-rose-300 text-rose-900 dark:bg-rose-900/50 dark:border-rose-700 dark:text-rose-100";
-    case "future-mine":
-      return "bg-indigo-100 border-indigo-300 text-indigo-800 dark:bg-indigo-950/40 dark:border-indigo-700 dark:text-indigo-100";
-    case "future-taken":
-      return "bg-slate-200 border-slate-300 text-slate-700 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200";
-    case "future-free":
+    case "free":
+      return "bg-emerald-500 border-emerald-600 text-white hover:bg-emerald-600 dark:bg-emerald-600/80 dark:border-emerald-500";
+    case "mine-auto":
+      return "bg-indigo-500 border-indigo-600 text-white hover:bg-rose-500 dark:bg-indigo-600 dark:border-indigo-500";
+    case "mine-grant":
+      return "bg-violet-300 border-violet-400 text-violet-900 dark:bg-violet-800 dark:border-violet-700 dark:text-violet-100";
+    case "taken":
     default:
-      return "bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-900/30 dark:border-slate-800";
+      return "bg-rose-300 border-rose-400 text-rose-950 dark:bg-rose-900/70 dark:border-rose-700 dark:text-rose-100";
   }
 }
 
@@ -397,38 +456,32 @@ function cellLabel(state: CellState, booking: BlockBooking | undefined): string 
   switch (state) {
     case "past":
       return "qua";
-    case "current-free":
-      return "ĐẶT BLOCK NÀY";
-    case "current-mine":
-      return "Của bạn — click huỷ";
-    case "current-taken":
-    case "future-taken":
+    case "free":
+      return "trống";
+    case "mine-auto":
+      return "Của bạn — huỷ";
+    case "mine-grant":
+      return "Bạn (grant GV)";
+    case "taken":
+    default:
       return booking
         ? booking.student_name?.slice(0, 14) ||
             booking.student_email?.split("@")[0]?.slice(0, 14) ||
             "đã đặt"
         : "đã đặt";
-    case "future-mine":
-      return "bạn (grant)";
-    case "future-free":
-    default:
-      return "";
   }
 }
 
 function cellTitle(state: CellState, booking: BlockBooking | undefined): string {
   switch (state) {
-    case "current-free":
-      return "Click để đặt block đang chạy";
-    case "current-mine":
-      return "Block đang chạy của bạn — click để huỷ";
-    case "current-taken":
-    case "future-taken":
-      return booking ? `${booking.student_email || ""}` : "";
-    case "future-free":
-      return "Đợi đến giờ này rồi click để đặt";
-    case "future-mine":
-      return "Grant dài hạn của bạn (do GV cấp)";
+    case "free":
+      return "Click để chọn — click block thứ 2 cùng ngày để đặt dải";
+    case "mine-auto":
+      return "Block bạn đã đặt — click để huỷ";
+    case "mine-grant":
+      return "Grant dài hạn của bạn (GV cấp) — quản lý ở /vps-access";
+    case "taken":
+      return booking ? `Đã đặt: ${booking.student_email || ""}` : "Đã đặt";
     case "past":
       return "Block đã qua";
   }
@@ -450,15 +503,25 @@ function ConfirmModal({
   onConfirm,
   onCancel,
 }: {
-  action: { kind: "book" | "cancel"; day: Date; blockIdx: number; booking?: BlockBooking };
+  action:
+    | { kind: "book"; day: Date; fromIdx: number; toIdx: number }
+    | { kind: "cancel"; booking: BlockBooking; blockIdx: number; day: Date };
   busy: boolean;
   deviceName: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const isBook = action.kind === "book";
-  const start = blockStart(action.day, action.blockIdx);
-  const end = blockEnd(action.day, action.blockIdx);
+  const start =
+    action.kind === "book"
+      ? blockStart(action.day, action.fromIdx)
+      : blockStart(action.day, action.blockIdx);
+  const end =
+    action.kind === "book"
+      ? blockEnd(action.day, action.toIdx)
+      : blockEnd(action.day, action.blockIdx);
+  const blockCount =
+    action.kind === "book" ? action.toIdx - action.fromIdx + 1 : 1;
   const fmtTime = (d: Date) =>
     d.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
@@ -499,7 +562,8 @@ function ConfirmModal({
             </p>
             <p className="font-mono text-sm font-bold text-indigo-700 dark:text-indigo-300">
               <Clock className="mr-1 inline h-3.5 w-3.5" />
-              {fmtTime(start)} – {fmtTime(end)} (4 giờ)
+              {fmtTime(start)} – {fmtTime(end)} ({blockCount * BLOCK_HOURS} giờ
+              {blockCount > 1 ? ` · ${blockCount} block liền` : ""})
             </p>
           </div>
           {isBook ? (

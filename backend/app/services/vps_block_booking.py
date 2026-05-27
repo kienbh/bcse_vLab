@@ -41,9 +41,12 @@ from app.services.device_prober import probe_tcp
 
 BLOCK_HOURS = 4
 BLOCKS_PER_DAY = 6
-MAX_BLOCKS_AUTO = 1  # single block at a time (per thầy's spec 2026-05-27).
-                     # Longer continuous use → proposal via email (no in-portal
-                     # request). See [[bcse-vlab-vps-access]] for the email flow.
+# 2026-05-27 (revised): user wants FLEXIBLE booking — SV picks any free
+# block in present or future, up to 6 consecutive (24h) per single booking.
+# Multiple separate bookings per SV allowed; only the GIST EXCLUDE no-overlap
+# rule + VPS_OFFLINE guard apply. Longer than 24h continuous → email lecturer
+# for a long grant.
+MAX_BLOCKS_AUTO = 6
 
 
 class BlockBookingError(Exception):
@@ -105,28 +108,6 @@ async def _ensure_vps(db: AsyncSession, device_id: UUID) -> Device:
     return device
 
 
-async def _existing_auto_booking_anywhere(
-    db: AsyncSession, *, student_id: UUID
-) -> Booking | None:
-    """Per thầy's spec 2026-05-27: a student may hold AT MOST 1 active auto
-    block ACROSS ALL VPS — not per-VPS. Returns the offending booking if any
-    so we can quote it back in the error message."""
-    now = _utcnow()
-    row = await db.execute(
-        select(Booking)
-        .where(
-            Booking.user_id == student_id,
-            Booking.granted_via == BookingGrantedVia.AUTO,
-            Booking.status.in_(
-                [BookingStatus.SCHEDULED, BookingStatus.ACTIVE]
-            ),
-            Booking.end_time > now,
-        )
-        .limit(1)
-    )
-    return row.scalar_one_or_none()
-
-
 def current_block_window(now: datetime | None = None) -> tuple[datetime, datetime]:
     """The 4h block containing `now` (default = utcnow), aligned to
     00/04/08/12/16/20 UTC. Used to enforce "book only the current block"."""
@@ -172,28 +153,10 @@ async def book_block(
             device_name=device.name,
         )
 
-    # Window MUST be the current block, not a future or past one.
-    cur_start, cur_end = current_block_window()
-    if start_time != cur_start or end_time != cur_end:
-        raise BlockBookingError(
-            "NOT_CURRENT_BLOCK",
-            f"Chỉ đặt được block hiện tại "
-            f"({cur_start.strftime('%H:%M')}-{cur_end.strftime('%H:%M')} UTC). "
-            "Block tương lai đã bỏ — đợi đến giờ rồi đặt.",
-            current_start=cur_start.isoformat(),
-            current_end=cur_end.isoformat(),
-        )
-
-    existing = await _existing_auto_booking_anywhere(db, student_id=student.id)
-    if existing is not None:
-        raise BlockBookingError(
-            "ALREADY_HOLDING_BLOCK",
-            "Bạn đang giữ 1 block khác. Mỗi SV chỉ giữ 1 block tại 1 lúc. "
-            "Huỷ block hiện tại trước khi đặt mới.",
-            existing_booking_id=str(existing.id),
-            existing_device_id=str(existing.device_id),
-            existing_end_time=existing.end_time.isoformat(),
-        )
+    # Reject only true past-block bookings (>5 min in the past). Current block
+    # and any future block are fine — flexibility per thầy's 2026-05-27 update.
+    if end_time <= _utcnow() - timedelta(minutes=5):
+        raise BlockBookingError("PAST_BLOCK", "Block đã kết thúc rồi")
 
     booking = Booking(
         user_id=student.id,
