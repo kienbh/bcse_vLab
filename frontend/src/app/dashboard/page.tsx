@@ -233,7 +233,7 @@ function DashboardInner() {
                     key={g.id}
                     icon={<Zap className="h-5 w-5 text-violet-500" />}
                     title={g.device_name || g.device_id}
-                    subtitle={<>Grant GV · còn {daysLeft} ngày · "{g.reason.slice(0, 50)}"</>}
+                    subtitle={<>Grant GV · còn {daysLeft} ngày · &ldquo;{g.reason.slice(0, 50)}&rdquo;</>}
                     meta={
                       <span className="rounded bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-700 dark:bg-violet-900/40 dark:text-violet-200">
                         grant
