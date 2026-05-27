@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
+import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
-import { apiPost, useUser } from "@/lib/auth";
+import { useUser } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -290,52 +291,9 @@ function FamilyInner({
     }
   };
 
-  // VPS book — confirm window with the SV, then POST. The backend computes
-  // the current 4h block server-side so the FE doesn't drift if the user's
-  // clock is off.
-  const bookCurrentBlock = async (d: Device) => {
-    if (activeBlock) {
-      alert(
-        `Bạn đang giữ block tới ${new Date(activeBlock.end_time).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}. ` +
-          `Huỷ block hiện tại trước khi đặt mới.`,
-      );
-      return;
-    }
-    // Show the actual current block window so the SV knows what they're
-    // committing to before pressing Yes.
-    const now = new Date();
-    const blockH = 4;
-    const startHour = Math.floor(now.getUTCHours() / blockH) * blockH;
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), startHour));
-    const end = new Date(start.getTime() + blockH * 3600_000);
-    const fmt = (d: Date) =>
-      d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
-    if (!confirm(`Đặt block ${fmt(start)}–${fmt(end)} (4h) trên ${d.name}?`)) return;
-    const r = await apiPost(`/vps-access/${d.id}/blocks/current`);
-    if (r.ok) {
-      load();
-    } else {
-      const e = await r.json().catch(() => ({}));
-      alert(`Không đặt được: ${e?.detail?.message || e?.detail?.code || `HTTP ${r.status}`}`);
-    }
-  };
-
-  // Cancel the SV's active auto block (only enabled when it's the current
-  // card's block).
-  const cancelMyBlock = async (d: Device) => {
-    if (!activeBlock || activeBlock.device_id !== d.id) return;
-    if (!confirm(`Huỷ block trên ${d.name}? Khi huỷ xong SV khác sẽ vào được.`)) return;
-    const r = await fetch(`${API}/vps-access/${d.id}/blocks/${activeBlock.booking_id}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (r.ok) {
-      load();
-    } else {
-      const e = await r.json().catch(() => ({}));
-      alert(`Không huỷ được: ${e?.detail?.message || e?.detail?.code || `HTTP ${r.status}`}`);
-    }
-  };
+  // VPS book/cancel — open the visual calendar modal (handles confirm itself).
+  const [calendarFor, setCalendarFor] = useState<Device | null>(null);
+  const openCalendar = (d: Device) => setCalendarFor(d);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -399,7 +357,7 @@ function FamilyInner({
         renderByTier(
           devices,
           family,
-          family === "vps" ? bookCurrentBlock : setPicked,
+          family === "vps" ? openCalendar : setPicked,
           connect,
           family === "vps"
             ? {
@@ -408,7 +366,7 @@ function FamilyInner({
                 onVpsConnect: connectVps,
                 activeBlockDeviceId: activeBlock?.device_id ?? null,
                 activeBlockEndTime: activeBlock?.end_time ?? null,
-                onCancelBlock: cancelMyBlock,
+                onCancelBlock: openCalendar,
               }
             : undefined,
         )
@@ -432,6 +390,14 @@ function FamilyInner({
             setSession({ data: next, bookingId: session.bookingId })
           }
           onClose={() => setSession(null)}
+        />
+      )}
+      {calendarFor && (
+        <BlockCalendarModal
+          deviceId={calendarFor.id}
+          deviceName={calendarFor.name}
+          onClose={() => setCalendarFor(null)}
+          onChanged={load}
         />
       )}
     </div>
