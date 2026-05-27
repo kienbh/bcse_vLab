@@ -66,35 +66,35 @@ export function TopNav() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200/60 bg-white/80 backdrop-blur-md dark:border-slate-800/60 dark:bg-slate-950/70">
-      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 md:px-6">
-        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 md:px-6">
+        <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight shrink-0">
           <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-vju-500 to-vju-700 text-white shadow-sm">
             <Cpu className="h-4 w-4" />
           </div>
-          <span className="hidden sm:inline">VJU Lab Portal</span>
+          <span className="hidden lg:inline">VJU Lab Portal</span>
         </Link>
 
-        <nav className="ml-6 hidden gap-1 md:flex">
+        <nav className="hidden flex-1 items-center gap-1 md:flex">
           {items.slice(1).map((it) => {
             const active = path === it.href;
             return (
               <Link
                 key={it.href}
                 href={it.href}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[13px] font-medium transition ${
                   active
                     ? "bg-vju-50 text-vju-700 dark:bg-vju-900/40 dark:text-vju-100"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                 }`}
               >
                 {it.icon}
-                {it.label}
+                <span className="hidden xl:inline">{it.label}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={() => setLocale(locale === "vi" ? "en" : "vi")}
@@ -102,7 +102,7 @@ export function TopNav() {
             aria-label="Toggle language"
           >
             <Globe className="h-4 w-4" />
-            {locale}
+            <span className="hidden sm:inline">{locale}</span>
           </button>
           <button
             type="button"
