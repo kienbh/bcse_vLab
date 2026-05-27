@@ -1,14 +1,13 @@
-"""VPS block booking — adds 'auto' grant kind for self-service VPS slots.
+"""VPS block booking PART 1 — add 'auto' enum value.
 
-The existing booking pipeline already validates ranges + GIST EXCLUDE
-no-overlap; the only schema move is letting `granted_via='auto'` exist
-with class_id=NULL AND special_access_id=NULL. The fair-share / 4h-block
-rules are enforced at the service layer (app.services.vps_block_booking)
-because they involve a per-student future-booking count that doesn't
-translate cleanly into a CHECK constraint.
+PostgreSQL gotcha: `ALTER TYPE … ADD VALUE` cannot be followed by any
+query that uses the new value WITHIN THE SAME TRANSACTION. Alembic wraps
+each migration in a transaction, so we split:
+  0011: just ALTER TYPE ADD VALUE  ← commits cleanly on its own
+  0012: rewrite the xor CHECK using the now-committed 'auto' value
 
-Idempotent — uses ALTER TYPE … ADD VALUE IF NOT EXISTS + recreates the
-xor constraint via DROP+ADD (PostgreSQL doesn't have ALTER CONSTRAINT).
+See [[bcse-vlab-portal]] / migration 0009 — same idempotency pattern
+(`ADD VALUE IF NOT EXISTS`) so a partial re-run is safe.
 
 Revision ID: 0011
 Revises: 0010
@@ -27,30 +26,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("ALTER TYPE booking_granted_via ADD VALUE IF NOT EXISTS 'auto'")
 
-    op.execute("ALTER TABLE bookings DROP CONSTRAINT IF EXISTS ck_bookings_grant_xor")
-    op.execute(
-        """
-        ALTER TABLE bookings ADD CONSTRAINT ck_bookings_grant_xor CHECK (
-            (granted_via = 'class' AND class_id IS NOT NULL AND special_access_id IS NULL)
-            OR
-            (granted_via = 'special_access' AND special_access_id IS NOT NULL AND class_id IS NULL)
-            OR
-            (granted_via = 'auto' AND class_id IS NULL AND special_access_id IS NULL)
-        )
-        """
-    )
-
 
 def downgrade() -> None:
-    # 'auto' enum value cannot be removed (PostgreSQL limitation) — left in type.
-    # Restore the strict xor that forbids auto.
-    op.execute("ALTER TABLE bookings DROP CONSTRAINT IF EXISTS ck_bookings_grant_xor")
-    op.execute(
-        """
-        ALTER TABLE bookings ADD CONSTRAINT ck_bookings_grant_xor CHECK (
-            (granted_via = 'class' AND class_id IS NOT NULL AND special_access_id IS NULL)
-            OR
-            (granted_via = 'special_access' AND special_access_id IS NOT NULL AND class_id IS NULL)
-        )
-        """
-    )
+    # PostgreSQL enum values are immortal — left in the type, no-op downgrade.
+    pass
