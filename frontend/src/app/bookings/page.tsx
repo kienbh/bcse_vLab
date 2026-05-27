@@ -121,11 +121,17 @@ function BookingsInner() {
       fetch(`${API}/bookings`, { credentials: "include" }).then((r) => (r.ok ? r.json() : [])),
       fetch(`${API}/devices`, { credentials: "include" }).then((r) => (r.ok ? r.json() : [])),
     ]).then(([b, d]: [Booking[], Device[]]) => {
-      setBookings(b);
-      setDevices(new Map(d.map((x) => [x.id, x])));
+      // VPS exit through their own flow at /devices/vps (block calendar + email
+      // proposal). The pool here is for slot-bookable kits only — FPGA / Jetson
+      // / RPi. Drop VPS rows from BOTH the device picker and the bookings list
+      // so this page stays focused on the kit-booking workflow.
+      const poolDevices = d.filter((x) => x.device_type !== "vps");
+      const poolDeviceIds = new Set(poolDevices.map((x) => x.id));
+      setBookings(b.filter((booking) => poolDeviceIds.has(booking.device_id)));
+      setDevices(new Map(poolDevices.map((x) => [x.id, x])));
       // Default to first device if none selected
-      if (!selectedDeviceId && d.length > 0) {
-        setSelectedDeviceId(d[0].id);
+      if (!selectedDeviceId && poolDevices.length > 0) {
+        setSelectedDeviceId(poolDevices[0].id);
       }
       setLoading(false);
     });
