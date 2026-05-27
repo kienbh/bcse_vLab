@@ -36,7 +36,16 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # `transaction_per_migration=True` makes alembic commit AFTER EACH migration
+    # rather than wrapping the whole chain in one outer transaction. Required
+    # for `ALTER TYPE ... ADD VALUE` because PostgreSQL refuses to use a freshly
+    # added enum value until its DDL transaction has committed — see
+    # migration 0011/0012 split.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        transaction_per_migration=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
