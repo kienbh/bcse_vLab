@@ -39,6 +39,7 @@ from app.schemas import (
     VpsGrantOut,
 )
 from app.services import vps_access as svc
+from app.services import vps_admin as admin_svc
 from app.services import vps_block_booking as block_svc
 from app.services.audit import audit_log
 
@@ -644,6 +645,48 @@ async def list_grants(
         )
     rows = list((await db.execute(q)).scalars())
     return await _hydrate_grants(db, rows)
+
+
+@router.post("/admin/{device_id}/cleanup")
+async def cleanup_vps(
+    device_id: UUID,
+    request: Request,
+    user: User = Depends(require_lecturer),
+    db: AsyncSession = Depends(get_db),
+    force: bool = Query(default=False),
+) -> dict:
+    """Light cleanup of a VPS (rm /home/<user>/* except .ssh, /tmp, apt clean,
+    docker restart). Refuses if anyone has an active gateway session, unless
+    `?force=true`. Admin/lecturer only."""
+    try:
+        result = await admin_svc.cleanup_vps(db, device_id=device_id, force=force)
+    except admin_svc.VpsAdminError as e:
+        mapping = {
+            "DEVICE_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+            "NOT_A_VPS": status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "ACTIVE_SESSION": status.HTTP_409_CONFLICT,
+            "MISSING_BACKEND_KEY": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        }
+        raise HTTPException(
+            mapping.get(e.code, status.HTTP_400_BAD_REQUEST),
+            detail={"code": e.code, "message": str(e), **e.details},
+        )
+    await audit_log(
+        db,
+        actor=user,
+        action="vps_admin.cleanup",
+        target_type="device",
+        target_id=str(device_id),
+        details={
+            "force": force,
+            "status": result["status"],
+            "duration_seconds": result["duration_seconds"],
+        },
+        success=result["status"] == "ok",
+        request=request,
+    )
+    await db.commit()
+    return result
 
 
 @router.delete("/grants/{grant_id}")
