@@ -3,11 +3,15 @@
 import Link from "next/link";
 import {
   Calendar,
+  Cog,
+  Info,
   Plus,
   Cpu,
   Inbox,
   ExternalLink,
+  Server,
   X,
+  Zap,
   List,
   CalendarDays,
   Power,
@@ -251,6 +255,49 @@ function BookingsInner() {
           <p className="mt-2 text-sm text-vju-100/90 md:text-base">
             {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
           </p>
+        </div>
+      </div>
+
+      {/* Scope banner — make it impossible to wonder "tại sao không thấy VPS"? */}
+      <div className="surface flex flex-col gap-2 border-l-4 border-l-vju-500 bg-vju-50/70 p-4 dark:bg-vju-950/30">
+        <p className="flex items-start gap-2 text-sm text-vju-900 dark:text-vju-100">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-vju-600 dark:text-vju-300" />
+          <span>
+            <strong>Trang này dùng cho FPGA / Jetson / Raspberry Pi.</strong>{" "}
+            Đặt theo slot 1–8h, có lịch tuần. VPS{" "}
+            <strong>không xuất hiện ở đây</strong>: VPS chạy theo block 4h tự
+            động — vào{" "}
+            <Link href="/devices/vps" className="font-bold underline hover:no-underline">
+              /devices/vps
+            </Link>
+            , còn slot trống thì click chiếm ngay, không cần đặt trước.
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link
+            href="/devices/fpga"
+            className="inline-flex items-center gap-1 rounded-md border border-vju-300 bg-white px-2 py-1 font-semibold text-vju-700 hover:bg-vju-50 dark:border-vju-700 dark:bg-slate-900 dark:text-vju-200 dark:hover:bg-vju-900/40"
+          >
+            <Cog className="h-3 w-3" /> FPGA
+          </Link>
+          <Link
+            href="/devices/jetson"
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2 py-1 font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+          >
+            <Cpu className="h-3 w-3" /> Jetson
+          </Link>
+          <Link
+            href="/devices/rpi"
+            className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-white px-2 py-1 font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-rose-900/40"
+          >
+            <Zap className="h-3 w-3" /> Pi
+          </Link>
+          <Link
+            href="/devices/vps"
+            className="ml-2 inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+          >
+            <Server className="h-3 w-3" /> VPS → tự phục vụ (không qua đây)
+          </Link>
         </div>
       </div>
 
