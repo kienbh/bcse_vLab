@@ -18,7 +18,10 @@ from app.api.routes import (
     health,
     reset,
     reset_requests,
+    schedule,
     sessions,
+    sso,
+    vps_access,
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -71,6 +74,8 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router, prefix="/api")
     app.include_router(auth.router, prefix="/api")
+    app.include_router(sso.router, prefix="/api")
+    app.include_router(sso.webhook_router, prefix="/api")
     app.include_router(devices.router, prefix="/api")
     app.include_router(classes.router, prefix="/api")
     app.include_router(classes.teacher_router, prefix="/api")

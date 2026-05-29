@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     DOMAIN: str = "localhost"
     TZ: str = "Asia/Ho_Chi_Minh"
 
+    # Dev-mode quick login: one-click sign-in as a fixed test account per role.
+    # MUST be false in real production — when off, only whitelist login works.
+    DEV_LOGIN_ENABLED: bool = False
+
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "labportal"
@@ -38,10 +42,17 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    OIDC_ISSUER_URL: str = "http://localhost:9000/application/o/labportal/"
-    OIDC_CLIENT_ID: str = "labportal"
-    OIDC_CLIENT_SECRET: SecretStr = SecretStr("changeme")
-    OIDC_REDIRECT_URI: str = "http://localhost:8000/api/auth/callback"
+    # bcse-id (id.bcse-vju.com) — federated SSO IdP for the BCSE ecosystem.
+    # Replaces the abandoned Authentik experiment (ADR-0002 superseded).
+    BCSE_ID_ISSUER: str = "https://id.bcse-vju.com"
+    BCSE_ID_CLIENT_ID: str = "sv14-hardware-lab"
+    BCSE_ID_CLIENT_SECRET: SecretStr = SecretStr("changeme_set_in_env")
+    # Shared HS256 secret — MUST equal IDP_JWT_SECRET in bcse-id .env. Rotating
+    # this on one side requires rotating on the other in the same window.
+    BCSE_ID_JWT_SECRET: SecretStr = SecretStr("changeme_set_in_env")
+    BCSE_ID_WEBHOOK_SECRET: SecretStr = SecretStr("changeme_set_in_env")
+    # Base URL used to build redirect_uri + final user-facing redirects.
+    BCSE_ID_APP_URL: str = "http://localhost:8000"
 
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
@@ -49,6 +60,11 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: SecretStr = SecretStr("")
     SMTP_FROM: str = "lab-noreply@vju.edu.vn"
     SMTP_FROM_NAME: str = "VJU Lab Portal"
+    # Comma-separated list of lecturer emails who get a notification when a
+    # student submits a VPS-access proposal. Empty → no email (still creates
+    # the in-portal access_request row, which the lecturer can see at
+    # /admin/vps-access).
+    LECTURER_NOTIFICATION_EMAIL: str = "buihuykien1311@gmail.com"
 
     UPLOAD_DIR: str = "/app/uploads"
     MAX_UPLOAD_SIZE_MB: int = 100
