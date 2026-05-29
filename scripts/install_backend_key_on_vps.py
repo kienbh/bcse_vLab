@@ -23,6 +23,10 @@ VPS_IPS = [
     ("sv21", "192.168.2.211"),
     ("sv22", "192.168.2.212"),
     ("sv23", "192.168.2.213"),
+    # pve3 ESAS-BCSE reserved cluster — gateway hop-2 for the external dev team
+    ("sv31", "192.168.2.222"),
+    ("sv32", "192.168.2.223"),
+    ("sv33", "192.168.2.224"),
 ]
 VPS_USER = "student"
 VPS_PASS = "Student@2024"

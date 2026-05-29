@@ -6,6 +6,7 @@ import {
   Cpu,
   HardDrive,
   Loader2,
+  Lock,
   MemoryStick,
   Power,
   Radio,
@@ -37,6 +38,9 @@ export type Device = {
   status: "available" | "in_use" | "maintenance" | "offline";
   power_state: PowerState;
   capabilities: Record<string, unknown>;
+  /** Reserved (ESAS-BCSE-managed): not self-bookable; admin grants access. */
+  reserved?: boolean;
+  managed_by?: string | null;
 };
 
 /**
@@ -370,6 +374,12 @@ export function DeviceCard({
             <p className="mt-1.5 text-sm font-semibold leading-tight">
               {device.model}
             </p>
+            {device.reserved && (
+              <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm">
+                <Lock className="h-3 w-3" />
+                {device.managed_by || "ESAS-BCSE"}
+              </p>
+            )}
             {/* Power LED indicator — admin manually toggles in /admin/devices */}
             <p
               className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold ${power.text}`}
@@ -572,6 +582,18 @@ export function DeviceCard({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Đang kiểm tra quyền...
               </button>
+            ) : device.reserved && !vpsGrantExpiresAt ? (
+              // ESAS-BCSE-managed VPS: not self-bookable. Without an admin grant
+              // there's no booking CTA — only a notice to contact the admin.
+              <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-center dark:border-slate-700 dark:bg-slate-900">
+                <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+                  <Lock className="h-4 w-4" />
+                  Do {device.managed_by || "ESAS-BCSE"} quản lý
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Không tự đặt lịch. Liên hệ admin để được cấp quyền truy cập.
+                </p>
+              </div>
             ) : vpsGrantExpiresAt ? (
               <>
                 <button

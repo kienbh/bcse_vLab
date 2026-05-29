@@ -105,6 +105,15 @@ async def _ensure_vps(db: AsyncSession, device_id: UUID) -> Device:
         raise BlockBookingError("DEVICE_NOT_FOUND")
     if device.device_type != DeviceType.VPS:
         raise BlockBookingError("NOT_A_VPS", device_type=device.device_type.value)
+    if device.reserved:
+        # ESAS-BCSE-managed VPS (e.g. pve3 sv31-33) — not self-bookable.
+        # Access is granted by an admin via SpecialAccess, not the block queue.
+        raise BlockBookingError(
+            "RESERVED_DEVICE",
+            f"VPS {device.name} do {device.managed_by or 'ESAS-BCSE'} quản lý — "
+            "không tự đặt lịch được. Liên hệ admin để được cấp quyền truy cập.",
+            managed_by=device.managed_by,
+        )
     return device
 
 

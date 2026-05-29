@@ -68,6 +68,8 @@ async def create_device(
         ssh_user=payload.ssh_user,
         capabilities=payload.capabilities,
         notes=payload.notes,
+        reserved=payload.reserved,
+        managed_by=payload.managed_by,
     )
     db.add(device)
     try:

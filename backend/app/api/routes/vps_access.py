@@ -23,8 +23,10 @@ from app.models import (
     AccessRequest,
     AccessRequestStatus,
     Booking,
+    BookingStatus,
     Device,
     DeviceType,
+    GatewaySession,
     SpecialAccess,
     User,
     UserRole,
@@ -38,6 +40,7 @@ from app.schemas import (
     VpsGrantCreate,
     VpsGrantOut,
 )
+from app.services import gateway_credentials
 from app.services import vps_access as svc
 from app.services import vps_admin as admin_svc
 from app.services import vps_block_booking as block_svc
@@ -139,6 +142,8 @@ def _svc_to_http(err: svc.VpsAccessError) -> HTTPException:
         "REQUEST_ALREADY_DECIDED": status.HTTP_409_CONFLICT,
         "STUDENT_GONE": status.HTTP_404_NOT_FOUND,
         "NOT_OWN_REQUEST": status.HTTP_403_FORBIDDEN,
+        "RESERVED_ADMIN_ONLY": status.HTTP_403_FORBIDDEN,
+        "RESERVED_DEVICE": status.HTTP_403_FORBIDDEN,
     }
     return HTTPException(
         mapping.get(err.code, status.HTTP_400_BAD_REQUEST),
@@ -163,6 +168,19 @@ async def create_request(
         svc._ensure_window(payload.requested_from, payload.requested_to)
     except svc.VpsAccessError as e:
         raise _svc_to_http(e)
+
+    if device.reserved:
+        # ESAS-BCSE-managed VPS — students can't request; admin grants directly.
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "RESERVED_DEVICE",
+                "message": (
+                    f"VPS {device.name} do {device.managed_by or 'ESAS-BCSE'} quản lý — "
+                    "không gửi yêu cầu được. Liên hệ admin để được cấp quyền."
+                ),
+            },
+        )
 
     ar = AccessRequest(
         student_id=user.id,
@@ -352,6 +370,7 @@ def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
         "ALREADY_ENDED": status.HTTP_409_CONFLICT,
         "VPS_OFFLINE": status.HTTP_503_SERVICE_UNAVAILABLE,
         "VPS_MAINTENANCE": status.HTTP_503_SERVICE_UNAVAILABLE,
+        "RESERVED_DEVICE": status.HTTP_403_FORBIDDEN,
     }
     return HTTPException(
         mapping.get(err.code, status.HTTP_400_BAD_REQUEST),
@@ -765,17 +784,52 @@ async def revoke_grant(
     ).scalar_one_or_none()
     if sa is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail={"code": "GRANT_NOT_FOUND"})
-    if sa.revoked_at is not None:
-        return {"status": "already_revoked"}
-    sa.revoked_at = datetime.now(timezone.utc)
-    sa.revoked_by = user.id
+    now = datetime.now(timezone.utc)
+    if sa.revoked_at is None:
+        sa.revoked_at = now
+        sa.revoked_by = user.id
+
+    # Free the device immediately: the SA→gateway flow auto-creates a Booking
+    # spanning the grant window (get_or_create_session_booking). Revoking the
+    # grant alone leaves that booking SCHEDULED/ACTIVE, so /live-status keeps
+    # painting the student as "occupying" the VPS and the gateway session stays
+    # valid until expiry. Cancel the spanning booking(s) + revoke the live
+    # session so the card frees up and SSH is cut now. Runs even if the grant
+    # was already revoked (idempotent repair of any orphaned booking/session).
+    bookings = list(
+        (
+            await db.execute(
+                select(Booking).where(
+                    Booking.special_access_id == sa.id,
+                    Booking.status.in_(
+                        [BookingStatus.SCHEDULED, BookingStatus.ACTIVE]
+                    ),
+                )
+            )
+        ).scalars()
+    )
+    for b in bookings:
+        b.status = BookingStatus.CANCELLED
+        sess = (
+            await db.execute(
+                select(GatewaySession).where(GatewaySession.booking_id == b.id)
+            )
+        ).scalar_one_or_none()
+        if sess is not None:
+            await gateway_credentials.revoke(db, sess, reason="grant revoked")
+
     await audit_log(
         db,
         actor=user,
         action="vps_access.grant.revoke",
         target_type="special_access",
         target_id=str(sa.id),
+        details={"bookings_cancelled": len(bookings)},
         request=request,
     )
     await db.commit()
-    return {"status": "revoked", "grant_id": str(sa.id)}
+    return {
+        "status": "revoked",
+        "grant_id": str(sa.id),
+        "bookings_cancelled": len(bookings),
+    }
