@@ -1,4 +1,10 @@
-"""Loguru-based structured logging."""
+"""Loguru-based structured logging.
+
+Use a SINK function, not a format function. Loguru's `format=` treats the
+returned string as a template with {field} placeholders, so JSON output
+containing unescaped `{"ts": ...}` triggers KeyError on the literal field
+name `"ts"` at every log call. Sinks bypass that substitution pipeline.
+"""
 import json
 import sys
 from typing import Any
@@ -22,15 +28,17 @@ def _serialize_record(record: dict[str, Any]) -> str:
     return json.dumps(payload, default=str, ensure_ascii=False)
 
 
+def _json_sink(message: Any) -> None:
+    """Loguru sink — receives a Message object whose `.record` is the dict."""
+    line = _serialize_record(message.record)
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
 def configure_logging() -> None:
     settings = get_settings()
     logger.remove()
     if settings.LOG_FORMAT == "json":
-        logger.add(
-            sys.stdout,
-            level=settings.LOG_LEVEL,
-            serialize=False,
-            format=lambda r: _serialize_record(r) + "\n",
-        )
+        logger.add(_json_sink, level=settings.LOG_LEVEL, format="{message}")
     else:
         logger.add(sys.stdout, level=settings.LOG_LEVEL, colorize=True)
