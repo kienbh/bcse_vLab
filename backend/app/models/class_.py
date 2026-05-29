@@ -47,6 +47,7 @@ class Class(Base, TimestampMixin):
         back_populates="class_", lazy="raise"
     )
     bookings: Mapped[list[Booking]] = relationship(back_populates="class_", lazy="raise")
+    groups: Mapped[list[Group]] = relationship(back_populates="class_", lazy="raise")
 
     __table_args__ = (CheckConstraint("ends_at > starts_at", name="ck_classes_time_order"),)
 
@@ -67,13 +68,49 @@ class Enrollment(Base, TimestampMixin):
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    group_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("groups.id", ondelete="SET NULL"), nullable=True
+    )
 
     class_: Mapped[Class] = relationship(back_populates="enrollments", foreign_keys=[class_id])
     user: Mapped[User] = relationship(back_populates="enrollments", foreign_keys=[user_id])
+    group: Mapped[Group | None] = relationship(
+        back_populates="enrollments", foreign_keys=[group_id]
+    )
 
     __table_args__ = (
         UniqueConstraint("class_id", "user_id", name="uq_enrollments_class_user"),
         Index("ix_enrollments_user_active", "user_id", "is_active"),
+    )
+
+
+class Group(Base, TimestampMixin):
+    """M6: a student group (nhóm) within a class. Only the leader registers /
+    connects for the group's planned slots; other members are view-only."""
+
+    __tablename__ = "groups"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()")
+    )
+    class_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("classes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    leader_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    class_: Mapped[Class] = relationship(back_populates="groups", foreign_keys=[class_id])
+    enrollments: Mapped[list[Enrollment]] = relationship(
+        back_populates="group", lazy="raise"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("class_id", "name", name="uq_groups_class_name"),
     )
 
 

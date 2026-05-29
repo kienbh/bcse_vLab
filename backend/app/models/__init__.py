@@ -1,12 +1,15 @@
 """SQLAlchemy ORM models — schema per docs/04-database-schema.md."""
 from app.models.access import SpecialAccess
+from app.models.access_request import AccessRequest
 from app.models.audit import AuditLog
 from app.models.base import Base, TimestampMixin
 from app.models.booking import Booking, Session
-from app.models.class_ import Class, ClassDeviceAssignment, Enrollment
+from app.models.class_ import Class, ClassDeviceAssignment, Enrollment, Group
 from app.models.device import Device, DeviceCredential, PlugMapping
 from app.models.gateway import GatewayAuthLog, GatewaySession
+from app.models.schedule import PlannedSlot
 from app.models.enums import (
+    AccessRequestStatus,
     BookingGrantedVia,
     BookingStatus,
     DevicePowerState,
@@ -15,6 +18,7 @@ from app.models.enums import (
     PlugType,
     ResetRequestStatus,
     SessionStatus,
+    TimeSlot,
     UserRole,
 )
 from app.models.quota import UserQuota
@@ -32,7 +36,10 @@ __all__ = [
     "Class",
     "Enrollment",
     "ClassDeviceAssignment",
+    "Group",
+    "PlannedSlot",
     "SpecialAccess",
+    "AccessRequest",
     "Booking",
     "Session",
     "GatewaySession",
@@ -50,4 +57,6 @@ __all__ = [
     "BookingStatus",
     "SessionStatus",
     "ResetRequestStatus",
+    "AccessRequestStatus",
+    "TimeSlot",
 ]

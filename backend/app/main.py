@@ -85,8 +85,10 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router, prefix="/api")
     app.include_router(reset.router, prefix="/api")
     app.include_router(reset_requests.router, prefix="/api")
+    app.include_router(schedule.router, prefix="/api")
     app.include_router(events.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
+    app.include_router(vps_access.router, prefix="/api")
 
     @app.get("/")
     async def root() -> dict[str, str]:

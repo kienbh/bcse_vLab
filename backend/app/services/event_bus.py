@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _QUEUE_MAX = 32
 
 
-@dataclass
+@dataclass(eq=False)  # identity eq/hash — each live connection is a distinct set member
 class Subscriber:
     user_id: UUID
     role: UserRole

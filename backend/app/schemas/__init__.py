@@ -1,4 +1,11 @@
 """Pydantic DTOs for API responses + requests."""
+from app.schemas.access import (
+    AccessRequestCreate,
+    AccessRequestDecide,
+    AccessRequestOut,
+    VpsGrantCreate,
+    VpsGrantOut,
+)
 from app.schemas.booking import BookingCreate, BookingOut
 from app.schemas.class_ import (
     AssignmentCreate,
@@ -16,9 +23,30 @@ from app.schemas.reset_request import (
     ResetRequestDecide,
     ResetRequestOut,
 )
+from app.schemas.schedule import (
+    EnrollmentRow,
+    EnrollStudent,
+    GroupCreate,
+    GroupMemberAdd,
+    GroupMemberRow,
+    GroupOut,
+    GroupUpdate,
+    MyScheduleOut,
+    MySlotOut,
+    PendingRequestOut,
+    PlannedSlotCreate,
+    PlannedSlotOut,
+    RequestCreate,
+    RequestDecide,
+)
 from app.schemas.user import UserOut
 
 __all__ = [
+    "AccessRequestCreate",
+    "AccessRequestDecide",
+    "AccessRequestOut",
+    "VpsGrantCreate",
+    "VpsGrantOut",
     "UserOut",
     "DeviceCreate",
     "DeviceOut",
@@ -37,4 +65,19 @@ __all__ = [
     "ResetRequestCreate",
     "ResetRequestDecide",
     "ResetRequestOut",
+    # M6 group scheduling
+    "EnrollStudent",
+    "EnrollmentRow",
+    "GroupCreate",
+    "GroupUpdate",
+    "GroupOut",
+    "GroupMemberRow",
+    "GroupMemberAdd",
+    "PlannedSlotCreate",
+    "PlannedSlotOut",
+    "MySlotOut",
+    "MyScheduleOut",
+    "RequestCreate",
+    "RequestDecide",
+    "PendingRequestOut",
 ]

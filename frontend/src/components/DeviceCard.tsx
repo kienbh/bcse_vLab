@@ -3,19 +3,23 @@
 import {
   Activity,
   Calendar,
+  Cpu,
+  HardDrive,
   Loader2,
+  MemoryStick,
   Power,
   Radio,
   Sparkles,
   Terminal,
   Wifi,
   WifiOff,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
-export type DeviceFamily = "fpga" | "jetson" | "rpi";
+export type DeviceFamily = "fpga" | "jetson" | "rpi" | "vps";
 
 export type PowerState = "on" | "off" | "resetting";
 
@@ -27,7 +31,8 @@ export type Device = {
     | "jetson_nano"
     | "jetson_orin"
     | "rpi4"
-    | "rpi5";
+    | "rpi5"
+    | "vps";
   model: string;
   status: "available" | "in_use" | "maintenance" | "offline";
   power_state: PowerState;
@@ -40,8 +45,10 @@ export type Device = {
  * instantly readable across the 3×3 grid.
  */
 function splitDeviceNumber(name: string): { prefix: string; number: string | null } {
-  const m = name.match(/^(.*?[-_])(\d{1,4})$/);
-  if (m) return { prefix: m[1], number: m[2] };
+  // Trailing digit group, with or without a separator: "fpga-kv260-001" →
+  // ("fpga-kv260-","001"), "sv21" → ("sv","21").
+  const m = name.match(/^(.*?)(\d{1,4})$/);
+  if (m && m[1]) return { prefix: m[1], number: m[2] };
   return { prefix: name, number: null };
 }
 
@@ -183,6 +190,18 @@ const THEMES: Record<DeviceFamily, FamilyTheme> = {
     maintenance:
       "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
   },
+  vps: {
+    badge: "VPS",
+    accent: "from-indigo-500 to-indigo-700",
+    available:
+      "from-indigo-400 via-indigo-500 to-indigo-700 shadow-indigo-500/30",
+    occupied:
+      "from-amber-400 via-orange-500 to-amber-600 shadow-amber-500/30",
+    offline:
+      "from-slate-400 via-slate-500 to-slate-700 shadow-slate-500/20",
+    maintenance:
+      "from-zinc-400 via-zinc-500 to-zinc-600 shadow-zinc-500/20",
+  },
 };
 
 const STATE_LABEL: Record<DerivedState, { vi: string; subtitle: string }> = {
@@ -197,9 +216,24 @@ export interface DeviceCardProps {
   family: DeviceFamily;
   onBook: (device: Device) => void;
   onConnect?: (device: Device, bookingId: string) => void;
+  /** VPS-only: ISO of the active grant's valid_to. Null = no active grant. */
+  vpsGrantExpiresAt?: string | null;
+  /** VPS-only: false while parent is still fetching grants. Prevents flashing
+   * "request access" CTA on a card the student actually has access to. */
+  vpsGrantsLoaded?: boolean;
+  /** VPS-only: triggers POST /vps-access/{id}/access (grant-based, no slot). */
+  onVpsConnect?: (device: Device) => void;
 }
 
-export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProps) {
+export function DeviceCard({
+  device,
+  family,
+  onBook,
+  onConnect,
+  vpsGrantExpiresAt,
+  vpsGrantsLoaded = true,
+  onVpsConnect,
+}: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -307,9 +341,11 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
               {theme.badge}
             </p>
             <p className="mt-1 leading-none">
-              <span className="font-mono text-sm font-semibold opacity-75">
-                {prefix.toUpperCase()}
-              </span>
+              {number && (
+                <span className="font-mono text-sm font-semibold opacity-75">
+                  {prefix.toUpperCase()}
+                </span>
+              )}
               {number && (
                 <span className="ml-0.5 font-mono text-3xl font-extrabold tracking-tight drop-shadow">
                   {number}
@@ -442,10 +478,52 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
           </div>
         )}
 
-        {/* Capability key:value chips — show actual specs, not just keys */}
-        {Object.keys(device.capabilities).length > 0 ? (
+        {/* Specs. For a VPS the CPU / RAM / Disk ARE the identity — show them
+            as three bold stat tiles, not tiny chips. Others keep key:val chips.
+            GPU-tier VPS get a highlighted purple ribbon above the stats so the
+            "có 48GB VRAM" tag-line is impossible to miss. */}
+        {device.device_type === "vps" ? (
+          <div className="flex flex-col gap-2">
+            {typeof device.capabilities.gpu === "string" && (
+              <div className="flex items-center justify-between gap-2 rounded-xl border border-purple-300 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-purple-50 px-3 py-2 dark:border-purple-700 dark:from-purple-950/50 dark:via-fuchsia-950/50 dark:to-purple-950/50">
+                <span className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+                  <span className="text-sm font-extrabold text-purple-800 dark:text-purple-100">
+                    {device.capabilities.gpu as string}
+                  </span>
+                </span>
+                {typeof device.capabilities.vram_gb !== "undefined" && (
+                  <span className="rounded-md bg-purple-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                    {formatCapValue(device.capabilities.vram_gb)} GB VRAM
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { icon: <Cpu className="h-5 w-5" />, value: formatCapValue(device.capabilities.vcpu), unit: "vCPU" },
+                { icon: <MemoryStick className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.ram_gb)} GB`, unit: "RAM" },
+                { icon: <HardDrive className="h-5 w-5" />, value: `${formatCapValue(device.capabilities.disk_gb)} GB`, unit: "Ổ đĩa" },
+              ].map((s) => (
+                <div
+                  key={s.unit}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white py-3 dark:border-slate-800 dark:from-slate-900 dark:to-slate-900/40"
+                >
+                  <span className="text-indigo-500 dark:text-indigo-400">{s.icon}</span>
+                  <span className="text-lg font-extrabold leading-none text-slate-800 dark:text-slate-100">
+                    {s.value}
+                  </span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    {s.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : Object.keys(device.capabilities).length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {Object.entries(device.capabilities)
+              .filter(([k]) => k !== "cluster")
               .slice(0, 6)
               .map(([k, v]) => (
                 <span
@@ -467,18 +545,58 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
 
         {/* Actions */}
         <div className="mt-1 flex flex-col gap-2">
-          {state === "available" && (
-            <button
-              type="button"
-              onClick={() => onBook(device)}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
-            >
-              <Sparkles className="h-4 w-4" />
-              ĐẶT SLOT NGAY
-            </button>
+          {family === "vps" ? (
+            // VPS uses long-running grants, NOT slot bookings.
+            // Has active grant → "Mở terminal SSH" (gateway mint via /vps-access/{id}/access)
+            // No grant → "Yêu cầu quyền" → navigates to /vps-access page
+            !vpsGrantsLoaded ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Đang kiểm tra quyền...
+              </button>
+            ) : vpsGrantExpiresAt ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onVpsConnect?.(device)}
+                  disabled={state === "maintenance" || state === "offline"}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-500 to-indigo-700 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 disabled:opacity-50"
+                >
+                  <Terminal className="h-4 w-4" />
+                  MỞ TERMINAL SSH
+                </button>
+                <p className="text-center text-[10px] text-slate-500">
+                  Quyền truy cập đến {new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}
+                </p>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onBook(device)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+              >
+                <Sparkles className="h-4 w-4" />
+                YÊU CẦU QUYỀN
+              </button>
+            )
+          ) : (
+            state === "available" && (
+              <button
+                type="button"
+                onClick={() => onBook(device)}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+              >
+                <Sparkles className="h-4 w-4" />
+                ĐẶT SLOT NGAY
+              </button>
+            )
           )}
 
-          {state === "occupied" && !isOwner && (
+          {family !== "vps" && state === "occupied" && !isOwner && (
             <button
               type="button"
               disabled
@@ -488,7 +606,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </button>
           )}
 
-          {state === "occupied" && isOwner && (
+          {family !== "vps" && state === "occupied" && isOwner && (
             <>
               {onConnect && current && (
                 <button
@@ -521,7 +639,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </>
           )}
 
-          {state === "offline" && (
+          {family !== "vps" && state === "offline" && (
             <>
               <button
                 type="button"
@@ -553,7 +671,7 @@ export function DeviceCard({ device, family, onBook, onConnect }: DeviceCardProp
             </>
           )}
 
-          {state === "maintenance" && (
+          {family !== "vps" && state === "maintenance" && (
             <button
               type="button"
               disabled
