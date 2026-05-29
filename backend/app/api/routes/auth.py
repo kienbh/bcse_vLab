@@ -13,6 +13,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_admin
@@ -260,6 +261,60 @@ async def admin_reset_password(
     )
     await db.commit()
     return {"status": "reset", "email": target.email, "new_password": new_pw}
+
+
+@router.delete("/admin/users/{user_id}", status_code=status.HTTP_200_OK)
+async def admin_delete_user(
+    user_id: UUID,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Permanently delete a user account (admin only).
+
+    Guards:
+      - Cannot delete yourself (would lock you out).
+      - DB FK is RESTRICT for bookings / gateway sessions / owned classes /
+        grants-given / planned slots / reset requests: if the user still owns
+        any of those, the delete is refused with 409 so we never orphan or
+        silently cascade live data. CASCADE handles quota / enrollments /
+        special_access-received / access_requests automatically.
+    """
+    if user_id == admin.id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail={"code": "CANNOT_DELETE_SELF"},
+        )
+    target = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND"},
+        )
+    email = target.email
+    await db.delete(target)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={
+                "code": "USER_HAS_DEPENDENTS",
+                "message": (
+                    "Không xoá được — tài khoản còn ràng buộc dữ liệu "
+                    "(booking / phiên gateway / lớp sở hữu / quyền đã cấp). "
+                    "Gỡ các dữ liệu đó trước, hoặc vô hiệu hoá tài khoản thay vì xoá."
+                ),
+            },
+        )
+    await audit_log(
+        db, actor=admin, action="user.delete",
+        target_type="user", target_id=str(user_id),
+        details={"email": email}, request=request,
+    )
+    await db.commit()
+    return {"status": "deleted", "email": email}
 
 
 @router.patch("/admin/users/{user_id}/role")

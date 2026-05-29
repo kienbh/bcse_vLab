@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, RotateCcw, X, Users as UsersIcon } from "lucide-react";
+import { Plus, RotateCcw, Trash2, X, Users as UsersIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AdminPageHeader } from "@/components/AdminPageHeader";
@@ -110,6 +110,26 @@ function UsersAdminInner() {
     });
     if (r.ok) refresh();
     else alert("Không đổi role được.");
+  };
+
+  const deleteUser = async (u: AdminUser) => {
+    if (
+      !confirm(
+        `Xoá vĩnh viễn tài khoản ${u.email}?\n` +
+          "Hành động này không hoàn tác được.",
+      )
+    )
+      return;
+    const r = await fetch(`${API}/auth/admin/users/${u.id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) {
+      refresh();
+    } else {
+      alert(`✗ ${d?.detail?.message ?? d?.detail?.code ?? `HTTP ${r.status}`}`);
+    }
   };
 
   return (
@@ -238,6 +258,17 @@ function UsersAdminInner() {
                       <RotateCcw className="h-3 w-3" />
                       Reset
                     </button>
+                    {u.id !== user.id && (
+                      <button
+                        type="button"
+                        onClick={() => deleteUser(u)}
+                        className="ml-2 inline-flex items-center gap-1 rounded-md border border-rose-300 bg-white px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-800 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                        title="Xoá tài khoản"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                        Xoá
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
