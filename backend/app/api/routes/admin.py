@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_lecturer
 from app.core.db import get_db
 from app.models import (
     AuditLog,
@@ -190,7 +190,7 @@ async def set_device_power_state(
 async def mark_reset_done(
     device_id: UUID,
     request: Request,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_lecturer),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """One-click shortcut for the admin reset-queue flow.

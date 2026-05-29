@@ -6,7 +6,7 @@ from uuid import UUID
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, LargeBinary, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, LargeBinary, text
 from sqlalchemy.dialects.postgresql import INET, JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +56,13 @@ class Device(Base, TimestampMixin):
     )
     capabilities: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Reserved (ESAS-BCSE-managed) devices are NOT self-bookable: no block
+    # calendar, no student access-request. Access is granted ONLY by an admin
+    # via SpecialAccess. See migration 0013. `managed_by` is a UI owner label.
+    reserved: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    managed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     plug: Mapped[PlugMapping | None] = relationship(
         back_populates="device", lazy="raise", uselist=False, cascade="all, delete-orphan"

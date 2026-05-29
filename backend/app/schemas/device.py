@@ -21,6 +21,8 @@ class DeviceCreate(BaseModel):
     ssh_user: str = Field("student", max_length=32)
     capabilities: dict = Field(default_factory=dict)
     notes: str | None = Field(None, max_length=500)
+    reserved: bool = False
+    managed_by: str | None = Field(None, max_length=64)
     plug: PlugMappingIn | None = None
 
 
@@ -33,6 +35,8 @@ class DeviceUpdate(BaseModel):
     status: DeviceStatus | None = None
     capabilities: dict | None = None
     notes: str | None = None
+    reserved: bool | None = None
+    managed_by: str | None = Field(default=None, max_length=64)
 
 
 class DeviceOut(BaseModel):
@@ -50,6 +54,8 @@ class DeviceOut(BaseModel):
     power_state_changed_at: datetime
     capabilities: dict
     notes: str | None
+    reserved: bool
+    managed_by: str | None
 
     @field_validator("internal_ip", mode="before")
     @classmethod

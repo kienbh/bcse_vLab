@@ -26,10 +26,15 @@ from app.models import (
     DeviceType,
     SpecialAccess,
     User,
+    UserRole,
 )
 
 
 MAX_GRANT_DAYS = 30
+# Reserved (ESAS-BCSE) devices are handed to an external team for long-running
+# development — allow a much longer grant so the admin grants once and the
+# minted gateway password stays valid for the whole period.
+RESERVED_GRANT_MAX_DAYS = 365
 DEFAULT_GRANT_REASON = "Approved via student request"
 
 
@@ -50,14 +55,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _ensure_window(start: datetime, end: datetime) -> None:
+def _ensure_window(start: datetime, end: datetime, *, max_days: int = MAX_GRANT_DAYS) -> None:
     if end <= start:
         raise VpsAccessError("INVALID_TIME_RANGE", "end must be after start")
-    if (end - start) > timedelta(days=MAX_GRANT_DAYS):
+    if (end - start) > timedelta(days=max_days):
         raise VpsAccessError(
             "WINDOW_TOO_LONG",
-            f"Khoảng truy cập tối đa {MAX_GRANT_DAYS} ngày",
-            max_days=MAX_GRANT_DAYS,
+            f"Khoảng truy cập tối đa {max_days} ngày",
+            max_days=max_days,
         )
     if end < _utcnow():
         raise VpsAccessError("PAST_WINDOW", "Khoảng truy cập đã hết hạn")
@@ -88,9 +93,21 @@ async def grant_vps_access(
     valid_to: datetime,
     reason: str,
 ) -> SpecialAccess:
-    """Direct grant by lecturer/admin. No prior request needed."""
-    await _ensure_vps(db, device_id)
-    _ensure_window(valid_from, valid_to)
+    """Direct grant by lecturer/admin. No prior request needed.
+
+    Reserved (ESAS-BCSE-managed) devices are admin-only: a lecturer cannot
+    grant access to them — only an admin can.
+    """
+    device = await _ensure_vps(db, device_id)
+    if device.reserved and granter.role != UserRole.ADMIN:
+        raise VpsAccessError(
+            "RESERVED_ADMIN_ONLY",
+            f"VPS {device.name} do {device.managed_by or 'ESAS-BCSE'} quản lý — "
+            "chỉ admin mới cấp quyền truy cập được.",
+            managed_by=device.managed_by,
+        )
+    max_days = RESERVED_GRANT_MAX_DAYS if device.reserved else MAX_GRANT_DAYS
+    _ensure_window(valid_from, valid_to, max_days=max_days)
 
     sa = SpecialAccess(
         user_id=student.id,

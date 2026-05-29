@@ -33,6 +33,7 @@ class PlugType(StrEnum):
 class BookingGrantedVia(StrEnum):
     CLASS = "class"
     SPECIAL_ACCESS = "special_access"
+    AUTO = "auto"                # self-booked VPS block (round-robin queue)
 
 
 class BookingStatus(StrEnum):

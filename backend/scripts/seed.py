@@ -34,29 +34,13 @@ WHITELIST: list[
     tuple[str, str, UserRole, str | None, str | None, bool | None]
 ] = [
     # Primary admin — thầy Kiên. Set ADMIN_BH_KIEN_PASSWORD env trước khi seed.
+    # 2026-05-29: trimmed to ONLY this account per thầy's request — all test
+    # accounts (backup admin, lecturers, sv01-10) removed so seed never
+    # re-creates them. Add real authorised accounts via /admin/users.
     (
         "bh.kien@vju.ac.vn", "Bùi Huy Kiên", UserRole.ADMIN, None,
         ADMIN_BH_KIEN_PASSWORD, False if ADMIN_BH_KIEN_PASSWORD else None,
     ),
-
-    # Backup admin (default password, must change on first login)
-    ("admin@vju.ac.vn", "Lab Admin", UserRole.ADMIN, None, None, None),
-
-    # Lecturers
-    ("hung.le@vju.ac.vn", "Lê Việt Hưng", UserRole.LECTURER, None, None, None),
-    ("anh.nguyen@vju.ac.vn", "Nguyễn Tuấn Anh", UserRole.LECTURER, None, None, None),
-
-    # Pilot students (BCSE 2024 cohort)
-    ("sv01@st.vju.ac.vn", "Sinh viên 01", UserRole.STUDENT, "BCSE2024001", None, None),
-    ("sv02@st.vju.ac.vn", "Sinh viên 02", UserRole.STUDENT, "BCSE2024002", None, None),
-    ("sv03@st.vju.ac.vn", "Sinh viên 03", UserRole.STUDENT, "BCSE2024003", None, None),
-    ("sv04@st.vju.ac.vn", "Sinh viên 04", UserRole.STUDENT, "BCSE2024004", None, None),
-    ("sv05@st.vju.ac.vn", "Sinh viên 05", UserRole.STUDENT, "BCSE2024005", None, None),
-    ("sv06@st.vju.ac.vn", "Sinh viên 06", UserRole.STUDENT, "BCSE2024006", None, None),
-    ("sv07@st.vju.ac.vn", "Sinh viên 07", UserRole.STUDENT, "BCSE2024007", None, None),
-    ("sv08@st.vju.ac.vn", "Sinh viên 08", UserRole.STUDENT, "BCSE2024008", None, None),
-    ("sv09@st.vju.ac.vn", "Sinh viên 09", UserRole.STUDENT, "BCSE2024009", None, None),
-    ("sv10@st.vju.ac.vn", "Sinh viên 10", UserRole.STUDENT, "BCSE2024010", None, None),
 ]
 
 
@@ -115,6 +99,10 @@ async def upsert_device(
     internal_ip: str,
     plug_ip: str | None = None,
     capabilities: dict | None = None,
+    ssh_user: str = "student",
+    status: DeviceStatus = DeviceStatus.AVAILABLE,
+    reserved: bool = False,
+    managed_by: str | None = None,
 ) -> Device:
     res = await db.execute(select(Device).where(Device.name == name))
     d = res.scalar_one_or_none()
@@ -125,9 +113,11 @@ async def upsert_device(
             model=model,
             internal_ip=internal_ip,
             ssh_port=22,
-            ssh_user="student",
-            status=DeviceStatus.AVAILABLE,
+            ssh_user=ssh_user,
+            status=status,
             capabilities=capabilities or {},
+            reserved=reserved,
+            managed_by=managed_by,
         )
         db.add(d)
         await db.flush()
@@ -190,6 +180,76 @@ async def main() -> int:
             plug_ip="192.168.30.121",
             capabilities={"gpio": True, "i2c": True, "pcie": True},
         )
+
+        print("\n=== VPS thật — node i7 Proxmox 192.168.2.210 (routable từ SV14) ===")
+        for n, ip in ((21, 211), (22, 212), (23, 213)):
+            await upsert_device(
+                db,
+                name=f"sv{n}",
+                device_type=DeviceType.VPS,
+                model="VPS Ubuntu 24.04 — 4GB RAM / 2 vCPU",
+                internal_ip=f"192.168.2.{ip}",
+                capabilities={
+                    "os": "Ubuntu 24.04",
+                    "ram_gb": 4,
+                    "vcpu": 2,
+                    "disk_gb": 20,
+                    "tier": "trung",
+                },
+            )
+
+        # ESAS-BCSE reserved cluster — pve3 node (192.168.2.230), sv31-33.
+        # reserved=True → NOT self-bookable (no block calendar, no student
+        # request). Access granted ONLY by an admin via SpecialAccess; the
+        # existing SA→gateway flow then mints a session-spanning (stable)
+        # password for the whole grant window. See migration 0013.
+        print("\n=== VPS reserved — ESAS-BCSE, pve3 192.168.2.230 (admin-grant only) ===")
+        for n, ip in ((31, 222), (32, 223), (33, 224)):
+            await upsert_device(
+                db,
+                name=f"sv{n}",
+                device_type=DeviceType.VPS,
+                model="VPS Ubuntu 24.04 — 4GB RAM / 2 vCPU (ESAS-BCSE)",
+                internal_ip=f"192.168.2.{ip}",
+                reserved=True,
+                managed_by="ESAS-BCSE",
+                capabilities={
+                    "os": "Ubuntu 24.04",
+                    "ram_gb": 4,
+                    "vcpu": 2,
+                    "disk_gb": 20,
+                    "tier": "reserved",
+                },
+            )
+
+        # GPU-VPS — bcseserver1 (192.168.2.98) with 3× NVIDIA RTX 6000 Ada.
+        # One Linux user per GPU on the same host (research0N → GPU N) with
+        # cgroup limits (16 GB RAM, 100% CPU) — see [[bcse-ai-server]] memory
+        # and bcseserver1's systemctl set-property per user-slice config.
+        # status=available so cards appear in /devices/vps under "VPS-GPU"
+        # tier; admins can already grant via /admin/vps-access. Real SSH will
+        # work once backend admin pubkey is installed on the research0N users.
+        print("\n=== GPU-VPS — bcseserver1 192.168.2.98, 3× RTX 6000 Ada (planned) ===")
+        for n in (1, 2, 3):
+            await upsert_device(
+                db,
+                name=f"ai{n:02d}",
+                device_type=DeviceType.VPS,
+                model="GPU-VPS Ubuntu — 1× RTX 6000 Ada 48GB",
+                internal_ip="192.168.2.98",
+                ssh_user=f"research0{n}",
+                capabilities={
+                    "os": "Ubuntu 24.04",
+                    "vcpu": 8,
+                    "ram_gb": 16,
+                    "disk_gb": 100,
+                    "gpu": "NVIDIA RTX 6000 Ada",
+                    "vram_gb": 48,
+                    "cuda": "12.4",
+                    "tier": "gpu",
+                    "gpu_index": n - 1,
+                },
+            )
 
         await db.commit()
         print("\n=== Done ===")

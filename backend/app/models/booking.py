@@ -102,6 +102,8 @@ class Booking(Base, TimestampMixin):
             (granted_via = 'class' AND class_id IS NOT NULL AND special_access_id IS NULL)
             OR
             (granted_via = 'special_access' AND special_access_id IS NOT NULL AND class_id IS NULL)
+            OR
+            (granted_via = 'auto' AND class_id IS NULL AND special_access_id IS NULL)
             """,
             name="ck_bookings_grant_xor",
         ),
