@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, Inbox, Plus, Server, Trash2, X } from "lucide-react";
+import { Check, Clock, Eraser, Inbox, Loader2, Plus, Server, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminPageHeader } from "@/components/AdminPageHeader";
@@ -60,7 +60,7 @@ function diffDays(fromIso: string, toIso: string) {
 
 function Inner() {
   const { user } = useUser();
-  const [tab, setTab] = useState<"pending" | "grants" | "history">("pending");
+  const [tab, setTab] = useState<"pending" | "grants" | "history" | "maintenance">("pending");
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [vpsList, setVpsList] = useState<Device[]>([]);
@@ -147,6 +147,7 @@ function Inner() {
             ["pending", `Yêu cầu chờ duyệt (${requests.length})`],
             ["grants", `Đang có quyền (${grants.length})`],
             ["history", "Cấp quyền trực tiếp"],
+            ["maintenance", "Bảo trì / Reset"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -184,6 +185,10 @@ function Inner() {
           onClose={() => setShowGrantForm(false)}
           onCreated={refresh}
         />
+      )}
+
+      {!loading && tab === "maintenance" && (
+        <MaintenancePanel vpsList={vpsList} />
       )}
     </div>
   );
@@ -452,6 +457,157 @@ function DirectGrantForm({
         )}
       </div>
     </form>
+  );
+}
+
+type CleanupResult = {
+  status: string;
+  device_name: string;
+  ssh_user: string;
+  internal_ip: string;
+  output: string;
+  error: string | null;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+};
+
+function MaintenancePanel({ vpsList }: { vpsList: Device[] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, CleanupResult | { error: string }>>({});
+
+  const runCleanup = async (device: Device, force: boolean) => {
+    const target = device.name;
+    const ok = window.confirm(
+      `Reset VPS ${target}?\n\n` +
+        `Sẽ XÓA TOÀN BỘ:\n` +
+        `  • /home/${device.id ? "<user>" : ""} (giữ lại .ssh)\n` +
+        `  • /tmp\n` +
+        `  • apt cache\n` +
+        `  • Restart docker nếu đang chạy\n\n` +
+        `SV mất hết file. Đảm bảo họ đã backup.${force ? "\n\n⚠️ FORCE = sẽ chạy kể cả khi đang có SV active!" : ""}`,
+    );
+    if (!ok) return;
+    setBusy(target);
+    setResults((r) => ({ ...r, [target]: undefined as unknown as CleanupResult }));
+    const r = await apiPost(`/vps-access/admin/${device.id}/cleanup${force ? "?force=true" : ""}`);
+    setBusy(null);
+    if (r.ok) {
+      const data = (await r.json()) as CleanupResult;
+      setResults((s) => ({ ...s, [target]: data }));
+    } else {
+      const e = await r.json().catch(() => ({}));
+      setResults((s) => ({
+        ...s,
+        [target]: { error: e?.detail?.message || e?.detail?.code || `HTTP ${r.status}` },
+      }));
+    }
+  };
+
+  if (vpsList.length === 0) {
+    return (
+      <div className="surface p-6 text-center text-sm text-slate-500">
+        Chưa có VPS nào trong hệ thống.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="surface border-l-4 border-l-amber-500 bg-amber-50/60 p-4 dark:bg-amber-950/20">
+        <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+          ⚠️ Reset = xóa hết file trong /home/&lt;user&gt; (giữ .ssh) + /tmp + apt
+          cache. Không có backup. Cảnh báo SV trước.
+        </p>
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          Mặc định chặn khi đang có SV SSH; bật force để override (chỉ khi cần khẩn).
+        </p>
+      </div>
+      {vpsList.map((v) => {
+        const res = results[v.name];
+        const isBusy = busy === v.name;
+        return (
+          <div key={v.id} className="surface p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-semibold">
+                  <Server className="mr-1 inline h-4 w-4 text-indigo-500" />
+                  {v.name}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Reset xoá user home + /tmp + apt cache + restart docker
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => runCleanup(v, false)}
+                  disabled={isBusy}
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                >
+                  {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />}
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => runCleanup(v, true)}
+                  disabled={isBusy}
+                  className="inline-flex items-center gap-1 rounded-md border border-rose-300 px-3 py-1.5 text-sm font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50 dark:border-rose-700 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                  title="Force: chạy kể cả khi SV đang active"
+                >
+                  Force
+                </button>
+              </div>
+            </div>
+            {res !== undefined && (
+              <CleanupOutput res={res} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function isHttpError(r: CleanupResult | { error: string }): r is { error: string } {
+  // `device_name` only exists on the backend's CleanupResult — use it as
+  // the discriminator. (Plain "error" doesn't work since CleanupResult also
+  // has a nullable `error` field.)
+  return !("device_name" in r);
+}
+
+function CleanupOutput({ res }: { res: CleanupResult | { error: string } | undefined }) {
+  if (res === undefined) {
+    return (
+      <div className="mt-3 flex items-center gap-2 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang chạy cleanup...
+      </div>
+    );
+  }
+  if (isHttpError(res)) {
+    return (
+      <div className="mt-3 rounded-md border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
+        ✗ {res.error}
+      </div>
+    );
+  }
+  const okBg =
+    res.status === "ok"
+      ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-100"
+      : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100";
+  return (
+    <div className={`mt-3 rounded-md border p-2 text-xs ${okBg}`}>
+      <p className="font-semibold">
+        {res.status === "ok" ? "✓" : "⚠"} {res.status} · {res.duration_seconds}s ·{" "}
+        {res.ssh_user}@{res.internal_ip}
+      </p>
+      {res.error && <p className="mt-1 font-mono">{res.error}</p>}
+      {res.output && (
+        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-white/60 p-2 font-mono text-[10px] dark:bg-slate-950/60">
+          {res.output}
+        </pre>
+      )}
+    </div>
   );
 }
 

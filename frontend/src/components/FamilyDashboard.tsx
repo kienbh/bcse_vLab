@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
+import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
@@ -167,6 +168,14 @@ function FamilyInner({
   const [vpsGrants, setVpsGrants] = useState<Map<string, string> | null>(
     family === "vps" ? null : new Map(),
   );
+  // VPS-only: the SV's single currently-held auto block (at most one across
+  // ALL VPS — per thầy's spec). Drives "MỞ TERMINAL SSH" / "Huỷ block" /
+  // "Bạn đang giữ block trên X" logic on every VPS card.
+  type ActiveBlock = { booking_id: string; device_id: string; end_time: string };
+  const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
+  // Refresh button state — disable + spin while load() is in flight so the
+  // user gets immediate feedback the click was registered.
+  const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -188,16 +197,20 @@ function FamilyInner({
       setDevices(filtered);
       setError(null);
 
-      // VPS uses the long-running grant model instead of slot bookings —
-      // fetch ALL grants and filter client-side. Server-side active_only
-      // can lie at the day-boundary (server UTC vs browser local TZ); doing
-      // the window check in the browser keeps /devices/vps consistent with
-      // /vps-access which also filters client-side.
+      // VPS: pull long-running grants AND the SV's single active auto block
+      // in parallel. Both feed into per-card state ("MỞ TERMINAL SSH" if
+      // either is active for this VPS, "ĐẶT BLOCK NGAY" otherwise).
       if (family === "vps") {
-        const rg = await fetch(`${API}/vps-access/grants/mine`, {
-          credentials: "include",
-          cache: "no-store",
-        });
+        const [rg, rb] = await Promise.all([
+          fetch(`${API}/vps-access/grants/mine`, {
+            credentials: "include",
+            cache: "no-store",
+          }),
+          fetch(`${API}/vps-access/blocks/mine`, {
+            credentials: "include",
+            cache: "no-store",
+          }),
+        ]);
         if (rg.ok) {
           const all: {
             device_id: string;
@@ -216,6 +229,25 @@ function FamilyInner({
         } else {
           setVpsGrants(new Map());
         }
+        if (rb.ok) {
+          const blocks: {
+            id: string;
+            device_id: string;
+            start_time: string;
+            end_time: string;
+          }[] = await rb.json();
+          const now = Date.now();
+          const live = blocks.find(
+            (b) =>
+              new Date(b.start_time).getTime() <= now &&
+              new Date(b.end_time).getTime() > now,
+          );
+          setActiveBlock(
+            live
+              ? { booking_id: live.id, device_id: live.device_id, end_time: live.end_time }
+              : null,
+          );
+        }
       }
     } catch (e) {
       setError(String(e));
@@ -225,6 +257,18 @@ function FamilyInner({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Wrapper used by the "Làm mới" button — toggles `refreshing` so the icon
+  // spins + the button disables while load() is in flight.
+  const handleRefresh = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await load();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [load, refreshing]);
 
   const connect = async (_device: Device, bookingId: string) => {
     // ADR-0013: backend mints a password for this booking and returns the
@@ -253,7 +297,7 @@ function FamilyInner({
     });
     if (r.ok) {
       const data = (await r.json()) as SessionResult;
-      setSession({ data, bookingId: data.booking_id ?? "" });
+      setSession({ data, bookingId: data.booking_id });
     } else {
       const e = await r.json().catch(() => ({}));
       const code = e?.detail?.code ?? "ERROR";
@@ -262,10 +306,9 @@ function FamilyInner({
     }
   };
 
-  // For VPS family: book button → /vps-access page so the student can submit a request.
-  const requestVps = () => {
-    window.location.href = "/vps-access";
-  };
+  // VPS book/cancel — open the visual calendar modal (handles confirm itself).
+  const [calendarFor, setCalendarFor] = useState<Device | null>(null);
+  const openCalendar = (d: Device) => setCalendarFor(d);
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-10 md:px-6">
@@ -287,11 +330,12 @@ function FamilyInner({
           <FamilyTabs current={family} />
           <button
             type="button"
-            onClick={load}
-            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 disabled:opacity-60 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800"
           >
-            <RefreshCw className="h-3.5 w-3.5" />
-            Làm mới
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Đang tải..." : "Làm mới"}
           </button>
         </div>
       </header>
@@ -329,10 +373,17 @@ function FamilyInner({
         renderByTier(
           devices,
           family,
-          family === "vps" ? (_d) => requestVps() : setPicked,
+          family === "vps" ? openCalendar : setPicked,
           connect,
           family === "vps"
-            ? { vpsGrants: vpsGrants ?? new Map(), grantsLoaded: vpsGrants !== null, onVpsConnect: connectVps }
+            ? {
+                vpsGrants: vpsGrants ?? new Map(),
+                grantsLoaded: vpsGrants !== null,
+                onVpsConnect: connectVps,
+                activeBlockDeviceId: activeBlock?.device_id ?? null,
+                activeBlockEndTime: activeBlock?.end_time ?? null,
+                onCancelBlock: openCalendar,
+              }
             : undefined,
         )
       )}
@@ -355,6 +406,14 @@ function FamilyInner({
             setSession({ data: next, bookingId: session.bookingId })
           }
           onClose={() => setSession(null)}
+        />
+      )}
+      {calendarFor && (
+        <BlockCalendarModal
+          deviceId={calendarFor.id}
+          deviceName={calendarFor.name}
+          onClose={() => setCalendarFor(null)}
+          onChanged={load}
         />
       )}
     </div>
@@ -444,23 +503,39 @@ function renderByTier(
     vpsGrants: Map<string, string>;
     grantsLoaded: boolean;
     onVpsConnect: (d: Device) => void;
+    activeBlockDeviceId: string | null;
+    activeBlockEndTime: string | null;
+    onCancelBlock: (d: Device) => void;
   },
 ): React.ReactNode {
   const grid = (list: Device[]) => (
     <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-      {list.map((d) => (
-        <li key={d.id}>
-          <DeviceCard
-            device={d}
-            family={family}
-            onBook={onBook}
-            onConnect={onConnect}
-            vpsGrantExpiresAt={vpsExtras?.vpsGrants.get(d.id) ?? null}
-            vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
-            onVpsConnect={vpsExtras?.onVpsConnect}
-          />
-        </li>
-      ))}
+      {list.map((d) => {
+        const isMyActiveBlock = vpsExtras?.activeBlockDeviceId === d.id;
+        return (
+          <li key={d.id}>
+            <DeviceCard
+              device={d}
+              family={family}
+              onBook={onBook}
+              onConnect={onConnect}
+              vpsGrantExpiresAt={
+                vpsExtras?.vpsGrants.get(d.id) ??
+                (isMyActiveBlock ? vpsExtras?.activeBlockEndTime ?? null : null)
+              }
+              vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
+              onVpsConnect={vpsExtras?.onVpsConnect}
+              vpsHasMyActiveBlock={isMyActiveBlock}
+              vpsHasOtherActiveBlock={
+                vpsExtras?.activeBlockDeviceId !== null &&
+                vpsExtras?.activeBlockDeviceId !== undefined &&
+                vpsExtras.activeBlockDeviceId !== d.id
+              }
+              onCancelMyBlock={vpsExtras?.onCancelBlock}
+            />
+          </li>
+        );
+      })}
     </ul>
   );
 

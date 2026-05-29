@@ -3,11 +3,15 @@
 import Link from "next/link";
 import {
   Calendar,
+  Cog,
+  Info,
   Plus,
   Cpu,
   Inbox,
   ExternalLink,
+  Server,
   X,
+  Zap,
   List,
   CalendarDays,
   Power,
@@ -121,11 +125,17 @@ function BookingsInner() {
       fetch(`${API}/bookings`, { credentials: "include" }).then((r) => (r.ok ? r.json() : [])),
       fetch(`${API}/devices`, { credentials: "include" }).then((r) => (r.ok ? r.json() : [])),
     ]).then(([b, d]: [Booking[], Device[]]) => {
-      setBookings(b);
-      setDevices(new Map(d.map((x) => [x.id, x])));
+      // VPS exit through their own flow at /devices/vps (block calendar + email
+      // proposal). The pool here is for slot-bookable kits only — FPGA / Jetson
+      // / RPi. Drop VPS rows from BOTH the device picker and the bookings list
+      // so this page stays focused on the kit-booking workflow.
+      const poolDevices = d.filter((x) => x.device_type !== "vps");
+      const poolDeviceIds = new Set(poolDevices.map((x) => x.id));
+      setBookings(b.filter((booking) => poolDeviceIds.has(booking.device_id)));
+      setDevices(new Map(poolDevices.map((x) => [x.id, x])));
       // Default to first device if none selected
-      if (!selectedDeviceId && d.length > 0) {
-        setSelectedDeviceId(d[0].id);
+      if (!selectedDeviceId && poolDevices.length > 0) {
+        setSelectedDeviceId(poolDevices[0].id);
       }
       setLoading(false);
     });
@@ -245,6 +255,49 @@ function BookingsInner() {
           <p className="mt-2 text-sm text-vju-100/90 md:text-base">
             {loading ? "Loading..." : `${visibleBookings.length} lịch đang hiệu lực`}
           </p>
+        </div>
+      </div>
+
+      {/* Scope banner — make it impossible to wonder "tại sao không thấy VPS"? */}
+      <div className="surface flex flex-col gap-2 border-l-4 border-l-vju-500 bg-vju-50/70 p-4 dark:bg-vju-950/30">
+        <p className="flex items-start gap-2 text-sm text-vju-900 dark:text-vju-100">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-vju-600 dark:text-vju-300" />
+          <span>
+            <strong>Trang này dùng cho FPGA / Jetson / Raspberry Pi.</strong>{" "}
+            Đặt theo slot 1–8h, có lịch tuần. VPS{" "}
+            <strong>không xuất hiện ở đây</strong>: VPS chạy theo block 4h tự
+            động — vào{" "}
+            <Link href="/devices/vps" className="font-bold underline hover:no-underline">
+              /devices/vps
+            </Link>
+            , còn slot trống thì click chiếm ngay, không cần đặt trước.
+          </span>
+        </p>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <Link
+            href="/devices/fpga"
+            className="inline-flex items-center gap-1 rounded-md border border-vju-300 bg-white px-2 py-1 font-semibold text-vju-700 hover:bg-vju-50 dark:border-vju-700 dark:bg-slate-900 dark:text-vju-200 dark:hover:bg-vju-900/40"
+          >
+            <Cog className="h-3 w-3" /> FPGA
+          </Link>
+          <Link
+            href="/devices/jetson"
+            className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-white px-2 py-1 font-semibold text-emerald-700 hover:bg-emerald-50 dark:border-emerald-700 dark:bg-slate-900 dark:text-emerald-200 dark:hover:bg-emerald-900/40"
+          >
+            <Cpu className="h-3 w-3" /> Jetson
+          </Link>
+          <Link
+            href="/devices/rpi"
+            className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-white px-2 py-1 font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-200 dark:hover:bg-rose-900/40"
+          >
+            <Zap className="h-3 w-3" /> Pi
+          </Link>
+          <Link
+            href="/devices/vps"
+            className="ml-2 inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-indigo-50 px-2 py-1 font-semibold text-indigo-700 hover:bg-indigo-100 dark:border-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-900/60"
+          >
+            <Server className="h-3 w-3" /> VPS → tự phục vụ (không qua đây)
+          </Link>
         </div>
       </div>
 
@@ -410,6 +463,84 @@ function BookingsInner() {
   );
 }
 
+/** Chip-row picker — every device is a clickable button with a status dot.
+ * Replaces the old `<select>` dropdown so students can see + tap straight
+ * onto the kit they want. Grouped by family for readability. */
+function DevicePicker({
+  devices,
+  selectedId,
+  onSelect,
+}: {
+  devices: Device[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const groups: { label: string; types: Device["device_type"][]; tint: string }[] = [
+    { label: "FPGA", types: ["fpga_kv260"], tint: "from-vju-500 to-vju-700" },
+    { label: "Jetson", types: ["jetson_nano", "jetson_orin"], tint: "from-emerald-500 to-teal-700" },
+    { label: "Raspberry Pi", types: ["rpi4", "rpi5"], tint: "from-rose-500 to-pink-700" },
+  ];
+  // Sort kits inside each group by name so 001 < 010 (per FleetView naming).
+  const byGroup = groups
+    .map((g) => ({
+      ...g,
+      items: devices
+        .filter((d) => g.types.includes(d.device_type))
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, "en", { numeric: true, sensitivity: "base" }),
+        ),
+    }))
+    .filter((g) => g.items.length > 0);
+
+  if (byGroup.length === 0) {
+    return (
+      <p className="text-xs italic text-slate-500">
+        Chưa có thiết bị nào trong pool. Vào /admin/devices để thêm.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {byGroup.map((g) => (
+        <div key={g.label} className="flex items-center gap-2">
+          <span className="w-20 shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            {g.label}
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {g.items.map((d) => {
+              const active = selectedId === d.id;
+              const isOffline = d.status === "offline";
+              const isMaint = d.status === "maintenance";
+              const dot = isOffline
+                ? "bg-rose-400"
+                : isMaint
+                  ? "bg-amber-400"
+                  : "bg-emerald-400";
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => onSelect(d.id)}
+                  title={`${d.model} · ${d.status}`}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition ${
+                    active
+                      ? `border-transparent bg-gradient-to-br text-white shadow-md ${g.tint}`
+                      : "border-slate-300 bg-white text-slate-700 hover:border-vju-300 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${dot}`} />
+                  {d.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const HOUR_PX = 40;
 const START_HOUR = 7;
 const END_HOUR = 23;
@@ -558,34 +689,34 @@ function WeekCalendar({
 
   return (
     <div className="surface overflow-hidden">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-        <div className="flex items-center gap-3">
-          <Cpu className="h-4 w-4 text-vju-500" />
-          <select
-            value={selectedDeviceId ?? ""}
-            onChange={(e) => onSelectDevice(e.target.value)}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold focus:border-vju-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900"
-          >
-            <option value="" disabled>Chọn thiết bị...</option>
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>{d.name} — {d.model}</option>
-            ))}
-          </select>
-          <span className="text-xs text-slate-500">
-            {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
-            {new Date(weekEnd.getTime() - 1).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
-          </span>
+      <header className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+            <Cpu className="h-4 w-4 text-vju-500" />
+            Chọn thiết bị để xem lịch + đặt slot:
+          </p>
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>
+              {weekStart.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} —{" "}
+              {new Date(weekEnd.getTime() - 1).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" })}
+            </span>
+            <div className="inline-flex rounded-md border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-900">
+              <button onClick={() => onWeekChange(weekOffset - 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
+              <button
+                onClick={() => onWeekChange(0)}
+                className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+              >
+                Tuần này
+              </button>
+              <button onClick={() => onWeekChange(weekOffset + 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
+            </div>
+          </div>
         </div>
-        <div className="inline-flex rounded-md border border-slate-300 bg-white text-xs dark:border-slate-700 dark:bg-slate-900">
-          <button onClick={() => onWeekChange(weekOffset - 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">←</button>
-          <button
-            onClick={() => onWeekChange(0)}
-            className={`px-3 py-1 font-semibold ${weekOffset === 0 ? "bg-vju-500 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}
-          >
-            Tuần này
-          </button>
-          <button onClick={() => onWeekChange(weekOffset + 1)} className="px-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">→</button>
-        </div>
+        <DevicePicker
+          devices={devices}
+          selectedId={selectedDeviceId}
+          onSelect={onSelectDevice}
+        />
       </header>
 
       {!selectedDevice ? (

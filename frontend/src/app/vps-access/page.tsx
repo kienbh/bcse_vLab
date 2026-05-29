@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Clock, Loader2, Plus, Server, Terminal, X, XCircle } from "lucide-react";
+import { CheckCircle2, Clock, Loader2, Plus, Send, Server, Terminal, X, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -11,12 +11,22 @@ import { apiPost, useUser } from "@/lib/auth";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const MAX_DAYS = 30;
 
-type Device = {
+type VpsDevice = {
   id: string;
   name: string;
   device_type: string;
   model: string;
-  capabilities: Record<string, unknown>;
+};
+
+type Grant = {
+  id: string;
+  device_id: string;
+  valid_from: string;
+  valid_to: string;
+  reason: string;
+  granted_at: string;
+  revoked_at: string | null;
+  device_name: string | null;
 };
 
 type AccessRequest = {
@@ -32,18 +42,7 @@ type AccessRequest = {
   device_name: string | null;
 };
 
-type Grant = {
-  id: string;
-  device_id: string;
-  valid_from: string;
-  valid_to: string;
-  reason: string;
-  granted_at: string;
-  revoked_at: string | null;
-  device_name: string | null;
-};
-
-function fmt(iso: string) {
+function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
@@ -54,21 +53,9 @@ function fmt(iso: string) {
 function diffDaysInclusive(fromIso: string, toIso: string) {
   return Math.max(
     1,
-    Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000) + 1,
-  );
-}
-
-function StatusBadge({ status }: { status: AccessRequest["status"] }) {
-  const cfg = {
-    pending: { label: "Đang chờ duyệt", cls: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" },
-    approved: { label: "Đã duyệt", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" },
-    rejected: { label: "Từ chối", cls: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200" },
-    cancelled: { label: "Đã huỷ", cls: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
-  }[status];
-  return (
-    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cfg.cls}`}>
-      {cfg.label}
-    </span>
+    Math.round(
+      (new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000,
+    ) + 1,
   );
 }
 
@@ -77,12 +64,12 @@ function Inner() {
   const router = useRouter();
   const [grants, setGrants] = useState<Grant[]>([]);
   const [requests, setRequests] = useState<AccessRequest[]>([]);
-  const [vpsList, setVpsList] = useState<Device[]>([]);
+  const [vpsList, setVpsList] = useState<VpsDevice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [connecting, setConnecting] = useState<string | null>(null); // grant.id
+  const [connecting, setConnecting] = useState<string | null>(null);
   const [session, setSession] = useState<{ data: SessionResult; bookingId: string } | null>(null);
+  const [showForm, setShowForm] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -96,7 +83,7 @@ function Inner() {
       if (rG.ok) setGrants(await rG.json());
       if (rR.ok) setRequests(await rR.json());
       if (rD.ok) {
-        const all: Device[] = await rD.json();
+        const all: VpsDevice[] = await rD.json();
         setVpsList(all.filter((d) => d.device_type === "vps"));
       }
     } catch (e) {
@@ -106,9 +93,6 @@ function Inner() {
     }
   }, []);
 
-  // Admin/lecturer manage VPS access at /admin/vps-access (pending queue, all
-  // grants, direct grant form). The student-facing "my grants" view doesn't
-  // fit their workflow — redirect so the nav link works for every role.
   useEffect(() => {
     if (user && (user.role === "admin" || user.role === "lecturer")) {
       router.replace("/admin/vps-access");
@@ -128,16 +112,6 @@ function Inner() {
     );
   }
 
-  const cancel = async (id: string) => {
-    if (!window.confirm("Huỷ yêu cầu này?")) return;
-    const r = await apiPost(`/vps-access/requests/${id}/cancel`);
-    if (r.ok) refresh();
-    else setErr(`HTTP ${r.status}`);
-  };
-
-  // Mint a gateway session inline — no nav to /devices/vps. The backend
-  // auto-creates a booking spanning the SA window + returns the SSH command
-  // and one-time password (M5.8 gateway flow, same shape as FPGA/Jetson/Pi).
   const connect = async (grant: Grant) => {
     setConnecting(grant.id);
     setErr(null);
@@ -145,12 +119,10 @@ function Inner() {
       const r = await apiPost(`/vps-access/${grant.device_id}/access`);
       if (r.ok) {
         const data = (await r.json()) as SessionResult;
-        setSession({ data, bookingId: data.booking_id ?? "" });
+        setSession({ data, bookingId: data.booking_id });
       } else {
         const e = await r.json().catch(() => ({}));
-        const code = e?.detail?.code ?? `HTTP ${r.status}`;
-        const hint = e?.detail?.hint ?? "";
-        setErr(`Không kết nối được: ${code}${hint ? ` — ${hint}` : ""}`);
+        setErr(`Không kết nối được: ${e?.detail?.code || `HTTP ${r.status}`}`);
       }
     } catch (e) {
       setErr(String(e));
@@ -159,9 +131,19 @@ function Inner() {
     }
   };
 
+  const cancelReq = async (id: string) => {
+    if (!confirm("Huỷ yêu cầu này?")) return;
+    const r = await apiPost(`/vps-access/requests/${id}/cancel`);
+    if (r.ok) refresh();
+    else setErr(`HTTP ${r.status}`);
+  };
+
   const now = Date.now();
   const activeGrants = grants.filter(
-    (g) => !g.revoked_at && new Date(g.valid_from).getTime() <= now && new Date(g.valid_to).getTime() >= now,
+    (g) =>
+      !g.revoked_at &&
+      new Date(g.valid_from).getTime() <= now &&
+      new Date(g.valid_to).getTime() >= now,
   );
   const pastGrants = grants.filter((g) => !activeGrants.includes(g));
   const pendingRequests = requests.filter((r) => r.status === "pending");
@@ -169,7 +151,7 @@ function Inner() {
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-10 md:px-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-md">
             <Server className="h-5 w-5" />
@@ -177,7 +159,11 @@ function Inner() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Quyền VPS của tôi</h1>
             <p className="text-sm text-slate-500">
-              Yêu cầu quyền dài ngày (tối đa {MAX_DAYS} ngày) tới giảng viên.
+              Block 6h dùng ở{" "}
+              <a className="underline" href="/devices/vps">
+                /devices/vps
+              </a>
+              . Cần quyền dài hơn 24h → soạn proposal bên dưới.
             </p>
           </div>
         </div>
@@ -186,7 +172,7 @@ function Inner() {
           onClick={() => setShowForm((s) => !s)}
           className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700"
         >
-          <Plus className="h-4 w-4" /> Yêu cầu mới
+          <Plus className="h-4 w-4" /> Soạn proposal
         </button>
       </header>
 
@@ -197,7 +183,7 @@ function Inner() {
       )}
 
       {showForm && (
-        <RequestForm
+        <ProposalForm
           vpsList={vpsList}
           onClose={() => setShowForm(false)}
           onCreated={() => {
@@ -213,7 +199,7 @@ function Inner() {
         <>
           <Section title="Đang có quyền" count={activeGrants.length}>
             {activeGrants.length === 0 ? (
-              <Empty msg="Chưa có quyền VPS active. Gửi yêu cầu hoặc liên hệ giảng viên." />
+              <Empty msg="Chưa có grant dài hạn active. Block 6h ngắn dùng ở /devices/vps; cần dài hơn thì soạn proposal ở trên." />
             ) : (
               activeGrants.map((g) => (
                 <ActiveGrantCard
@@ -227,15 +213,15 @@ function Inner() {
           </Section>
 
           {pendingRequests.length > 0 && (
-            <Section title="Yêu cầu đang chờ duyệt" count={pendingRequests.length}>
+            <Section title="Proposal đang chờ duyệt" count={pendingRequests.length}>
               {pendingRequests.map((r) => (
-                <RequestRow key={r.id} req={r} onCancel={() => cancel(r.id)} />
+                <RequestRow key={r.id} req={r} onCancel={() => cancelReq(r.id)} />
               ))}
             </Section>
           )}
 
           {pastGrants.length > 0 && (
-            <Section title="Lịch sử quyền" count={pastGrants.length}>
+            <Section title="Lịch sử grant" count={pastGrants.length}>
               {pastGrants.map((g) => (
                 <div
                   key={g.id}
@@ -244,7 +230,7 @@ function Inner() {
                   <div>
                     <p className="font-semibold">{g.device_name}</p>
                     <p className="text-xs text-slate-500">
-                      {fmt(g.valid_from)} → {fmt(g.valid_to)}
+                      {fmtDate(g.valid_from)} → {fmtDate(g.valid_to)}
                       {g.revoked_at && " · Đã thu hồi"}
                     </p>
                   </div>
@@ -254,7 +240,7 @@ function Inner() {
           )}
 
           {decidedRequests.length > 0 && (
-            <Section title="Yêu cầu đã xử lý" count={decidedRequests.length}>
+            <Section title="Proposal đã xử lý" count={decidedRequests.length}>
               {decidedRequests.map((r) => (
                 <RequestRow key={r.id} req={r} />
               ))}
@@ -327,7 +313,7 @@ function ActiveGrantCard({
         </p>
         <p className="text-xs text-slate-500">
           <Clock className="mr-1 inline h-3 w-3" />
-          {fmt(grant.valid_from)} → {fmt(grant.valid_to)} · còn {daysLeft} ngày
+          {fmtDate(grant.valid_from)} → {fmtDate(grant.valid_to)} · còn {daysLeft} ngày
         </p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{grant.reason}</p>
       </div>
@@ -344,6 +330,20 @@ function ActiveGrantCard({
   );
 }
 
+function StatusBadge({ status }: { status: AccessRequest["status"] }) {
+  const cfg = {
+    pending: { label: "Chờ duyệt", cls: "bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200" },
+    approved: { label: "Đã duyệt", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200" },
+    rejected: { label: "Từ chối", cls: "bg-rose-100 text-rose-800 dark:bg-rose-950/40 dark:text-rose-200" },
+    cancelled: { label: "Đã huỷ", cls: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300" },
+  }[status];
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 function RequestRow({ req, onCancel }: { req: AccessRequest; onCancel?: () => void }) {
   return (
     <div className="surface flex flex-col gap-2 p-3 md:flex-row md:items-start md:justify-between">
@@ -353,7 +353,7 @@ function RequestRow({ req, onCancel }: { req: AccessRequest; onCancel?: () => vo
           <StatusBadge status={req.status} />
         </p>
         <p className="text-xs text-slate-500">
-          {fmt(req.requested_from)} → {fmt(req.requested_to)} (
+          {fmtDate(req.requested_from)} → {fmtDate(req.requested_to)} (
           {diffDaysInclusive(req.requested_from, req.requested_to)} ngày)
         </p>
         <p className="text-xs text-slate-600 dark:text-slate-400">&ldquo;{req.reason}&rdquo;</p>
@@ -374,23 +374,18 @@ function RequestRow({ req, onCancel }: { req: AccessRequest; onCancel?: () => vo
   );
 }
 
-function RequestForm({
+function ProposalForm({
   vpsList,
   onClose,
   onCreated,
 }: {
-  vpsList: Device[];
+  vpsList: VpsDevice[];
   onClose: () => void;
   onCreated: () => void;
 }) {
-  // Local YYYY-MM-DD (not UTC) — toISOString() rolls a Vietnam-evening date
-  // back to "yesterday UTC" and pre-fills the wrong day on the form.
   const today = useMemo(() => {
     const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }, []);
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(today);
@@ -403,7 +398,9 @@ function RequestForm({
     if (!from || !to) return 0;
     return Math.max(
       1,
-      Math.round((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000) + 1,
+      Math.round(
+        (new Date(to).getTime() - new Date(from).getTime()) / 86_400_000,
+      ) + 1,
     );
   }, [from, to]);
 
@@ -412,6 +409,10 @@ function RequestForm({
     setMsg(null);
     if (days > MAX_DAYS) {
       setMsg(`× Tối đa ${MAX_DAYS} ngày liên tiếp.`);
+      return;
+    }
+    if (reason.trim().length < 30) {
+      setMsg("× Mục đích cần ≥ 30 ký tự để GV có thông tin duyệt.");
       return;
     }
     setBusy(true);
@@ -424,8 +425,8 @@ function RequestForm({
     const r = await apiPost("/vps-access/requests", payload);
     setBusy(false);
     if (r.ok) {
-      setMsg("✓ Đã gửi yêu cầu. Chờ giảng viên duyệt.");
-      onCreated();
+      setMsg("✓ Đã gửi proposal + email tới GV. Đợi phản hồi.");
+      setTimeout(() => onCreated(), 1200);
     } else {
       const e2 = await r.json().catch(() => ({}));
       setMsg(`× ${e2?.detail?.message || e2?.detail?.code || `HTTP ${r.status}`}`);
@@ -433,9 +434,12 @@ function RequestForm({
   };
 
   return (
-    <form onSubmit={submit} className="surface flex flex-col gap-3 p-5">
+    <form
+      onSubmit={submit}
+      className="surface flex flex-col gap-3 border-l-4 border-l-indigo-500 p-5"
+    >
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold">Yêu cầu quyền VPS</p>
+        <p className="text-sm font-bold">Soạn proposal xin VPS dài hạn</p>
         <button
           type="button"
           onClick={onClose}
@@ -444,8 +448,12 @@ function RequestForm({
           <X className="h-4 w-4" />
         </button>
       </div>
+      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+        Proposal sẽ được gửi qua portal + email đến giảng viên phụ trách. Em ghi
+        rõ mục đích sử dụng để thầy/cô duyệt nhanh.
+      </p>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-semibold">VPS</span>
+        <span className="font-semibold">VPS muốn dùng</span>
         <select
           required
           value={deviceId}
@@ -474,7 +482,10 @@ function RequestForm({
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-semibold">
-            Đến ngày <span className="font-normal text-slate-400">({days} ngày, tối đa {MAX_DAYS})</span>
+            Đến ngày{" "}
+            <span className="font-normal text-slate-400">
+              ({days} ngày · tối đa {MAX_DAYS})
+            </span>
           </span>
           <input
             type="date"
@@ -487,24 +498,32 @@ function RequestForm({
         </label>
       </div>
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-semibold">Lý do (≥ 10 ký tự)</span>
+        <span className="font-semibold">
+          Mục đích sử dụng — chi tiết{" "}
+          <span className="font-normal text-slate-400">
+            ({reason.trim().length} / 500 ký tự, tối thiểu 30)
+          </span>
+        </span>
         <textarea
           required
-          minLength={10}
+          minLength={30}
           maxLength={500}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
-          placeholder="VD: Khoá luận tốt nghiệp — chạy web back-end, cần SSH dài ngày"
-          className="min-h-[80px] rounded-md border border-slate-300 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+          placeholder={
+            "Ví dụ:\n- Môn / dự án: Đồ án tốt nghiệp \"AI nhận diện cây trồng\"\n- Sản phẩm cần chạy: huấn luyện YOLOv8 trên tập 50K ảnh, kéo dài ~3 ngày\n- Vì sao cần block dài: huấn luyện liên tục, không thể chia nhỏ\n- Dự kiến deliverable: model weights + báo cáo benchmark"
+          }
+          className="min-h-[140px] rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
         />
       </label>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           type="submit"
-          disabled={busy || days > MAX_DAYS}
-          className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+          disabled={busy || days > MAX_DAYS || reason.trim().length < 30}
+          className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
-          {busy ? "Đang gửi..." : "Gửi yêu cầu"}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {busy ? "Đang gửi..." : "Gửi proposal"}
         </button>
         {msg && (
           <p

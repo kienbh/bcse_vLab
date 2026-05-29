@@ -6,6 +6,7 @@ import {
   Cpu,
   HardDrive,
   Loader2,
+  Lock,
   MemoryStick,
   Power,
   Radio,
@@ -37,6 +38,9 @@ export type Device = {
   status: "available" | "in_use" | "maintenance" | "offline";
   power_state: PowerState;
   capabilities: Record<string, unknown>;
+  /** Reserved (ESAS-BCSE-managed): not self-bookable; admin grants access. */
+  reserved?: boolean;
+  managed_by?: string | null;
 };
 
 /**
@@ -216,13 +220,20 @@ export interface DeviceCardProps {
   family: DeviceFamily;
   onBook: (device: Device) => void;
   onConnect?: (device: Device, bookingId: string) => void;
-  /** VPS-only: ISO of the active grant's valid_to. Null = no active grant. */
+  /** VPS-only: ISO of the active grant's valid_to (long term OR active auto
+   * block — both unlock "MỞ TERMINAL SSH"). Null = no current access. */
   vpsGrantExpiresAt?: string | null;
   /** VPS-only: false while parent is still fetching grants. Prevents flashing
    * "request access" CTA on a card the student actually has access to. */
   vpsGrantsLoaded?: boolean;
   /** VPS-only: triggers POST /vps-access/{id}/access (grant-based, no slot). */
   onVpsConnect?: (device: Device) => void;
+  /** VPS-only: true iff this card's device is the SV's current auto block. */
+  vpsHasMyActiveBlock?: boolean;
+  /** VPS-only: true iff SV is currently holding a block on a DIFFERENT VPS. */
+  vpsHasOtherActiveBlock?: boolean;
+  /** VPS-only: cancel the SV's active auto block on this card's device. */
+  onCancelMyBlock?: (device: Device) => void;
 }
 
 export function DeviceCard({
@@ -233,6 +244,9 @@ export function DeviceCard({
   vpsGrantExpiresAt,
   vpsGrantsLoaded = true,
   onVpsConnect,
+  vpsHasMyActiveBlock = false,
+  vpsHasOtherActiveBlock = false,
+  onCancelMyBlock,
 }: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -360,6 +374,12 @@ export function DeviceCard({
             <p className="mt-1.5 text-sm font-semibold leading-tight">
               {device.model}
             </p>
+            {device.reserved && (
+              <p className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-black/25 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider backdrop-blur-sm">
+                <Lock className="h-3 w-3" />
+                {device.managed_by || "ESAS-BCSE"}
+              </p>
+            )}
             {/* Power LED indicator — admin manually toggles in /admin/devices */}
             <p
               className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-semibold ${power.text}`}
@@ -546,9 +566,13 @@ export function DeviceCard({
         {/* Actions */}
         <div className="mt-1 flex flex-col gap-2">
           {family === "vps" ? (
-            // VPS uses long-running grants, NOT slot bookings.
-            // Has active grant → "Mở terminal SSH" (gateway mint via /vps-access/{id}/access)
-            // No grant → "Yêu cầu quyền" → navigates to /vps-access page
+            // VPS uses long-running grants OR the SV's single current auto block.
+            //   • !vpsGrantsLoaded → checking
+            //   • has grant or own active block → MỞ TERMINAL SSH (+ Huỷ block
+            //     if it's an auto block we own)
+            //   • no own access, but holding a block on another VPS → disabled
+            //     + "đang giữ block trên kit khác"
+            //   • free → ĐẶT BLOCK NGAY (confirm in handler)
             !vpsGrantsLoaded ? (
               <button
                 type="button"
@@ -558,6 +582,18 @@ export function DeviceCard({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Đang kiểm tra quyền...
               </button>
+            ) : device.reserved && !vpsGrantExpiresAt ? (
+              // ESAS-BCSE-managed VPS: not self-bookable. Without an admin grant
+              // there's no booking CTA — only a notice to contact the admin.
+              <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-center dark:border-slate-700 dark:bg-slate-900">
+                <p className="flex items-center justify-center gap-1.5 text-sm font-bold text-slate-700 dark:text-slate-200">
+                  <Lock className="h-4 w-4" />
+                  Do {device.managed_by || "ESAS-BCSE"} quản lý
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Không tự đặt lịch. Liên hệ admin để được cấp quyền truy cập.
+                </p>
+              </div>
             ) : vpsGrantExpiresAt ? (
               <>
                 <button
@@ -570,18 +606,65 @@ export function DeviceCard({
                   MỞ TERMINAL SSH
                 </button>
                 <p className="text-center text-[10px] text-slate-500">
-                  Quyền truy cập đến {new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}
+                  {vpsHasMyActiveBlock
+                    ? `Block kết thúc lúc ${new Date(vpsGrantExpiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
+                    : `Quyền truy cập đến ${new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}`}
                 </p>
+                {vpsHasMyActiveBlock && onCancelMyBlock && (
+                  <button
+                    type="button"
+                    onClick={() => onCancelMyBlock(device)}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                  >
+                    Huỷ block
+                  </button>
+                )}
               </>
-            ) : (
+            ) : vpsHasOtherActiveBlock ? (
               <button
                 type="button"
-                onClick={() => onBook(device)}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="Mỗi SV chỉ giữ 1 block tại 1 thời điểm. Huỷ block hiện tại trước."
               >
-                <Sparkles className="h-4 w-4" />
-                YÊU CẦU QUYỀN
+                Bạn đang giữ block trên kit khác
               </button>
+            ) : state === "offline" ? (
+              // Hoà Lạc cúp điện → backend cũng từ chối book khi probe TCP
+              // VPS:22 fail (VPS_OFFLINE). UI phản ánh trước để SV không
+              // bấm hụt.
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                title="VPS không phản hồi — có thể mất điện. Thử lại sau."
+              >
+                <WifiOff className="h-4 w-4" />
+                VPS đang offline
+              </button>
+            ) : state === "maintenance" ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-200 px-4 py-3 text-sm font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+              >
+                <Activity className="h-4 w-4" />
+                Đang bảo trì
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onBook(device)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:shadow-lg hover:brightness-110 active:scale-[0.98]"
+                >
+                  <Calendar className="h-4 w-4" />
+                  ĐẶT BLOCK NGAY
+                </button>
+                <p className="text-center text-[10px] text-slate-500">
+                  Block 4h hiện tại · cần dài hơn → email GV
+                </p>
+              </>
             )
           ) : (
             state === "available" && (

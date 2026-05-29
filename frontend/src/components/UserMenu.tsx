@@ -50,22 +50,15 @@ export function UserMenu() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-md p-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800"
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800"
       >
-        <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-vju-500 to-vju-700 font-semibold text-white">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-vju-500 to-vju-700 text-sm font-semibold text-white">
           {initial}
         </span>
-        <span className="hidden flex-col items-start leading-tight md:flex">
-          <span>{user.full_name}</span>
-          <span
-            className={`mt-0.5 rounded px-1.5 py-px text-[10px] font-bold uppercase ${
-              ROLE_BADGE[user.role] ?? ""
-            }`}
-          >
-            {user.role}
-          </span>
+        <span className="hidden max-w-[140px] truncate md:inline">
+          {user.full_name}
         </span>
-        <ChevronDown className="h-4 w-4 text-slate-400" />
+        <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
       </button>
 
       {open && (
@@ -73,9 +66,18 @@ export function UserMenu() {
           <div className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
             <p className="text-sm font-semibold">{user.full_name}</p>
             <p className="font-mono text-xs text-slate-500">{user.email}</p>
-            {user.student_code && (
-              <p className="mt-1 font-mono text-[11px] text-slate-400">{user.student_code}</p>
-            )}
+            <div className="mt-1.5 flex items-center gap-2">
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
+                  ROLE_BADGE[user.role] ?? ""
+                }`}
+              >
+                {user.role}
+              </span>
+              {user.student_code && (
+                <p className="font-mono text-[11px] text-slate-400">{user.student_code}</p>
+              )}
+            </div>
           </div>
           <Link
             href="/dashboard"
