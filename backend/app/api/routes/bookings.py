@@ -143,10 +143,11 @@ async def create_booking(
     booking = Booking(
         user_id=user.id,
         device_id=payload.device_id,
-        # SPECIAL_ACCESS is the closest existing semantic — "granted outside
-        # the normal class flow". special_access_id stays NULL because no
-        # SpecialAccess row backs an admin override.
-        granted_via=BookingGrantedVia.SPECIAL_ACCESS,
+        # AUTO is the only granted_via branch the ck_bookings_grant_xor CHECK
+        # allows with BOTH class_id AND special_access_id NULL. SPECIAL_ACCESS
+        # would require a SpecialAccess row to back it, which doesn't exist
+        # for an admin/lecturer override. (Re-use is loose but constraint-safe.)
+        granted_via=BookingGrantedVia.AUTO,
         class_id=None,
         special_access_id=None,
         start_time=payload.start_time,
