@@ -170,9 +170,17 @@ function FamilyInner({
   );
   // VPS-only: the SV's single currently-held auto block (at most one across
   // ALL VPS — per thầy's spec). Drives "MỞ TERMINAL SSH" / "Huỷ block" /
-  // "Bạn đang giữ block trên X" logic on every VPS card.
-  type ActiveBlock = { booking_id: string; device_id: string; end_time: string };
-  const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
+  // "Bạn đang giữ block trên X" logic on every VPS card. `state` distinguishes
+  // a block whose window is open right now ("active" → unlocks SSH) vs one
+  // that's scheduled in the future ("upcoming" → shows countdown, no SSH yet).
+  type HeldBlock = {
+    booking_id: string;
+    device_id: string;
+    start_time: string;
+    end_time: string;
+    state: "active" | "upcoming";
+  };
+  const [heldBlock, setHeldBlock] = useState<HeldBlock | null>(null);
   // Refresh button state — disable + spin while load() is in flight so the
   // user gets immediate feedback the click was registered.
   const [refreshing, setRefreshing] = useState(false);
@@ -236,15 +244,31 @@ function FamilyInner({
             start_time: string;
             end_time: string;
           }[] = await rb.json();
+          // Backend already filters to scheduled+active and end_time > now,
+          // and the spec enforces at most 1 held block per SV — but defend
+          // against the API returning more by preferring the earliest one
+          // (active, if any; otherwise the soonest upcoming).
           const now = Date.now();
-          const live = blocks.find(
+          const sorted = [...blocks].sort(
+            (a, b) =>
+              new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+          );
+          const active = sorted.find(
             (b) =>
               new Date(b.start_time).getTime() <= now &&
               new Date(b.end_time).getTime() > now,
           );
-          setActiveBlock(
-            live
-              ? { booking_id: live.id, device_id: live.device_id, end_time: live.end_time }
+          const upcoming = active ? null : sorted.find((b) => new Date(b.start_time).getTime() > now);
+          const chosen = active ?? upcoming ?? null;
+          setHeldBlock(
+            chosen
+              ? {
+                  booking_id: chosen.id,
+                  device_id: chosen.device_id,
+                  start_time: chosen.start_time,
+                  end_time: chosen.end_time,
+                  state: active ? "active" : "upcoming",
+                }
               : null,
           );
         }
@@ -380,8 +404,7 @@ function FamilyInner({
                 vpsGrants: vpsGrants ?? new Map(),
                 grantsLoaded: vpsGrants !== null,
                 onVpsConnect: connectVps,
-                activeBlockDeviceId: activeBlock?.device_id ?? null,
-                activeBlockEndTime: activeBlock?.end_time ?? null,
+                heldBlock,
                 onCancelBlock: openCalendar,
               }
             : undefined,
@@ -503,15 +526,23 @@ function renderByTier(
     vpsGrants: Map<string, string>;
     grantsLoaded: boolean;
     onVpsConnect: (d: Device) => void;
-    activeBlockDeviceId: string | null;
-    activeBlockEndTime: string | null;
+    heldBlock: {
+      booking_id: string;
+      device_id: string;
+      start_time: string;
+      end_time: string;
+      state: "active" | "upcoming";
+    } | null;
     onCancelBlock: (d: Device) => void;
   },
 ): React.ReactNode {
+  const held = vpsExtras?.heldBlock ?? null;
   const grid = (list: Device[]) => (
     <ul className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
       {list.map((d) => {
-        const isMyActiveBlock = vpsExtras?.activeBlockDeviceId === d.id;
+        const isMyHeldBlock = held?.device_id === d.id;
+        const isMyActiveBlock = isMyHeldBlock && held?.state === "active";
+        const isMyUpcomingBlock = isMyHeldBlock && held?.state === "upcoming";
         return (
           <li key={d.id}>
             <DeviceCard
@@ -521,15 +552,18 @@ function renderByTier(
               onConnect={onConnect}
               vpsGrantExpiresAt={
                 vpsExtras?.vpsGrants.get(d.id) ??
-                (isMyActiveBlock ? vpsExtras?.activeBlockEndTime ?? null : null)
+                (isMyActiveBlock ? held?.end_time ?? null : null)
               }
               vpsGrantsLoaded={vpsExtras?.grantsLoaded ?? true}
               onVpsConnect={vpsExtras?.onVpsConnect}
               vpsHasMyActiveBlock={isMyActiveBlock}
-              vpsHasOtherActiveBlock={
-                vpsExtras?.activeBlockDeviceId !== null &&
-                vpsExtras?.activeBlockDeviceId !== undefined &&
-                vpsExtras.activeBlockDeviceId !== d.id
+              vpsUpcomingBlock={
+                isMyUpcomingBlock && held
+                  ? { start_time: held.start_time, end_time: held.end_time }
+                  : null
+              }
+              vpsHasOtherHeldBlock={
+                held !== null && held.device_id !== d.id
               }
               onCancelMyBlock={vpsExtras?.onCancelBlock}
             />

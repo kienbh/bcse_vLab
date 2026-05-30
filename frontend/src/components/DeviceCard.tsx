@@ -230,8 +230,13 @@ export interface DeviceCardProps {
   onVpsConnect?: (device: Device) => void;
   /** VPS-only: true iff this card's device is the SV's current auto block. */
   vpsHasMyActiveBlock?: boolean;
-  /** VPS-only: true iff SV is currently holding a block on a DIFFERENT VPS. */
-  vpsHasOtherActiveBlock?: boolean;
+  /** VPS-only: SV has booked a block on THIS device that hasn't started yet —
+   * the card shows a countdown to start_time and offers "Huỷ block" instead of
+   * an SSH button. SSH only unlocks once the block becomes active. */
+  vpsUpcomingBlock?: { start_time: string; end_time: string } | null;
+  /** VPS-only: true iff SV is currently holding a block on a DIFFERENT VPS
+   * (active OR upcoming — the "1 block per SV" rule applies regardless). */
+  vpsHasOtherHeldBlock?: boolean;
   /** VPS-only: cancel the SV's active auto block on this card's device. */
   onCancelMyBlock?: (device: Device) => void;
 }
@@ -245,7 +250,8 @@ export function DeviceCard({
   vpsGrantsLoaded = true,
   onVpsConnect,
   vpsHasMyActiveBlock = false,
-  vpsHasOtherActiveBlock = false,
+  vpsUpcomingBlock = null,
+  vpsHasOtherHeldBlock = false,
   onCancelMyBlock,
 }: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
@@ -607,8 +613,8 @@ export function DeviceCard({
                 </button>
                 <p className="text-center text-[10px] text-slate-500">
                   {vpsHasMyActiveBlock
-                    ? `Block kết thúc lúc ${new Date(vpsGrantExpiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`
-                    : `Quyền truy cập đến ${new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN")}`}
+                    ? `Block kết thúc lúc ${new Date(vpsGrantExpiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" })} giờ VN`
+                    : `Quyền truy cập đến ${new Date(vpsGrantExpiresAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}`}
                 </p>
                 {vpsHasMyActiveBlock && onCancelMyBlock && (
                   <button
@@ -620,7 +626,12 @@ export function DeviceCard({
                   </button>
                 )}
               </>
-            ) : vpsHasOtherActiveBlock ? (
+            ) : vpsUpcomingBlock ? (
+              <UpcomingBlockPanel
+                upcoming={vpsUpcomingBlock}
+                onCancel={onCancelMyBlock ? () => onCancelMyBlock(device) : undefined}
+              />
+            ) : vpsHasOtherHeldBlock ? (
               <button
                 type="button"
                 disabled
@@ -779,5 +790,63 @@ export function DeviceCard({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Card panel shown when the SV has booked a block on THIS device that hasn't
+ *  started yet. Shows ICT start time + live countdown, and a cancel button.
+ *  SSH stays locked until the block window opens. */
+function UpcomingBlockPanel({
+  upcoming,
+  onCancel,
+}: {
+  upcoming: { start_time: string; end_time: string };
+  onCancel?: () => void;
+}) {
+  // Tick every 30s so the countdown updates without a parent re-render.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const startDate = new Date(upcoming.start_time);
+  const endDate = new Date(upcoming.end_time);
+  const fmtICT = (d: Date) =>
+    d.toLocaleTimeString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+  const fmtICTDate = (d: Date) =>
+    d.toLocaleDateString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+  const msToStart = startDate.getTime() - Date.now();
+  return (
+    <>
+      <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950/30">
+        <p className="flex items-center gap-1.5 text-sm font-bold text-amber-800 dark:text-amber-200">
+          <Calendar className="h-4 w-4" />
+          Block đã đặt — chưa tới giờ
+        </p>
+        <p className="mt-1 font-mono text-xs text-amber-700 dark:text-amber-300">
+          {fmtICT(startDate)} – {fmtICT(endDate)} ngày {fmtICTDate(startDate)} (giờ VN)
+        </p>
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          ⏳ Còn <strong>{fmtRemaining(msToStart)}</strong> nữa sẽ mở SSH
+        </p>
+      </div>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-rose-300 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 dark:border-rose-700 dark:bg-slate-900 dark:text-rose-300 dark:hover:bg-rose-950/30"
+        >
+          Huỷ block
+        </button>
+      )}
+    </>
   );
 }

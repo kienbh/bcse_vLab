@@ -12,6 +12,15 @@ const BLOCKS_PER_DAY = 4;
 const BLOCK_HOURS = 6;
 const DAYS_AHEAD = 7;
 const MAX_BLOCKS_PER_BOOKING = 4; // 24h ceiling, matches backend MAX_BLOCKS_AUTO
+const HOUR_MS = 3600_000;
+const DAY_MS = 86_400_000;
+const ICT_OFFSET_MS = 7 * HOUR_MS;
+// Backend hard-aligns blocks to UTC 00/06/12/18 — in ICT that's 07/13/19/01,
+// so the 4 blocks of an ICT day start at 01:00 (then 07, 13, 19) and the
+// 01–07 block actually starts at UTC 18:00 of the PREVIOUS UTC day. The grid
+// groups cells by ICT day so vietnamese users see "today's evening" land in
+// today's column, not "tomorrow's early morning".
+const ICT_FIRST_BLOCK_HOUR = 1;
 
 export type BlockBooking = {
   id: string;
@@ -33,31 +42,54 @@ export interface BlockCalendarModalProps {
   onChanged?: () => void;
 }
 
-/** UTC midnight of the given local Date. */
-function utcMidnight(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+/** ICT midnight of `d`'s ICT-day, returned as a UTC Date (which is
+ *  `d`'s ICT YYYY-MM-DD at 00:00 ICT = 17:00 UTC the previous UTC day). */
+function ictMidnight(d: Date): Date {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const [y, m, day] = fmt.format(d).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, day) - ICT_OFFSET_MS);
 }
 
-function blockStart(dayUtc: Date, blockIdx: number): Date {
-  return new Date(dayUtc.getTime() + blockIdx * BLOCK_HOURS * 3600_000);
+/** YYYY-MM-DD in ICT — used as a stable key for the cell grid. */
+function ictDateKey(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
 }
 
-function blockEnd(dayUtc: Date, blockIdx: number): Date {
-  return new Date(blockStart(dayUtc, blockIdx).getTime() + BLOCK_HOURS * 3600_000);
+function blockStart(ictDayStart: Date, blockIdx: number): Date {
+  return new Date(
+    ictDayStart.getTime() + (ICT_FIRST_BLOCK_HOUR + blockIdx * BLOCK_HOURS) * HOUR_MS,
+  );
+}
+
+function blockEnd(ictDayStart: Date, blockIdx: number): Date {
+  return new Date(blockStart(ictDayStart, blockIdx).getTime() + BLOCK_HOURS * HOUR_MS);
 }
 
 function fmtBlockLabel(blockIdx: number): string {
-  const startH = blockIdx * BLOCK_HOURS;
-  const endH = startH + BLOCK_HOURS;
+  const startH = ICT_FIRST_BLOCK_HOUR + blockIdx * BLOCK_HOURS; // 1, 7, 13, 19
+  const endH = (startH + BLOCK_HOURS) % 24; // 7, 13, 19, 1
   return `${String(startH).padStart(2, "0")}:00–${String(endH).padStart(2, "0")}:00`;
 }
 
 function fmtDayHeader(d: Date): { wd: string; date: string } {
-  const wd = d.toLocaleDateString("vi-VN", { weekday: "short", timeZone: "UTC" });
+  const wd = d.toLocaleDateString("vi-VN", {
+    weekday: "short",
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
   const date = d.toLocaleDateString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
-    timeZone: "UTC",
+    timeZone: "Asia/Ho_Chi_Minh",
   });
   return { wd, date };
 }
@@ -125,29 +157,36 @@ export function BlockCalendarModal({
   }, [confirmAction, onClose]);
 
   // Each cell can be owned by at most one booking; map cellKey → booking.
+  // Block start times are aligned to UTC 00/06/12/18, which in ICT are 07/13/19/01
+  // — i.e. exactly the 4 block-start hours of an ICT day (after the 01:00 offset).
   const occupancy = useMemo(() => {
     const m = new Map<string, BlockBooking>();
+    const hourFmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      hour12: false,
+    });
     for (const b of bookings) {
       const start = new Date(b.start_time);
       const end = new Date(b.end_time);
       let cur = start.getTime();
       while (cur < end.getTime()) {
-        const dayUtc = utcMidnight(new Date(cur));
-        const blockIdx = Math.floor(
-          (cur - dayUtc.getTime()) / (BLOCK_HOURS * 3600_000),
-        );
-        const key = `${dayUtc.toISOString().slice(0, 10)}|${blockIdx}`;
+        const at = new Date(cur);
+        const ictHour = parseInt(hourFmt.format(at), 10);
+        // ictHour ∈ {1, 7, 13, 19} → idx ∈ {0, 1, 2, 3}
+        const blockIdx = Math.floor((ictHour - ICT_FIRST_BLOCK_HOUR) / BLOCK_HOURS);
+        const key = `${ictDateKey(at)}|${blockIdx}`;
         m.set(key, b);
-        cur += BLOCK_HOURS * 3600_000;
+        cur += BLOCK_HOURS * HOUR_MS;
       }
     }
     return m;
   }, [bookings]);
 
   const days = useMemo(() => {
-    const startDay = utcMidnight(new Date());
+    const startDay = ictMidnight(new Date());
     return Array.from({ length: DAYS_AHEAD }, (_, i) =>
-      new Date(startDay.getTime() + i * 86_400_000),
+      new Date(startDay.getTime() + i * DAY_MS),
     );
   }, []);
 
@@ -156,10 +195,10 @@ export function BlockCalendarModal({
       const endT = blockEnd(day, blockIdx).getTime();
       const nowMs = Date.now();
       if (endT <= nowMs) {
-        const key = `${day.toISOString().slice(0, 10)}|${blockIdx}`;
+        const key = `${ictDateKey(day)}|${blockIdx}`;
         return { state: "past", booking: occupancy.get(key) };
       }
-      const key = `${day.toISOString().slice(0, 10)}|${blockIdx}`;
+      const key = `${ictDateKey(day)}|${blockIdx}`;
       const b = occupancy.get(key);
       if (!b) return { state: "free" };
       if (b.is_mine) {
@@ -195,8 +234,7 @@ export function BlockCalendarModal({
       setRangeAnchor({ day, blockIdx });
       return;
     }
-    const sameDay =
-      rangeAnchor.day.toISOString().slice(0, 10) === day.toISOString().slice(0, 10);
+    const sameDay = ictDateKey(rangeAnchor.day) === ictDateKey(day);
     if (!sameDay) {
       // different day → reset anchor to the new cell
       setRangeAnchor({ day, blockIdx });
@@ -284,7 +322,7 @@ export function BlockCalendarModal({
                 Lịch block · {deviceName}
               </h2>
               <p className="text-xs text-white/85">
-                4h/block · 6 block/ngày · click block ĐANG CHẠY để đặt
+                6h/block · 4 block/ngày · giờ Việt Nam (UTC+7)
               </p>
             </div>
           </div>
@@ -334,7 +372,7 @@ export function BlockCalendarModal({
             <>
               {rangeAnchor && (
                 <div className="mb-3 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
-                  ✏️ Đã chọn block đầu ({fmtBlockLabel(rangeAnchor.blockIdx)}, {fmtDayHeader(rangeAnchor.day).date}).
+                  ✏️ Đã chọn block đầu ({fmtBlockLabel(rangeAnchor.blockIdx)} ngày {fmtDayHeader(rangeAnchor.day).date}, giờ VN).
                   Click block thứ 2 cùng ngày (sau hoặc trước cũng được) để đặt dải, hoặc click lại block đầu để chỉ đặt 1 block.{" "}
                   <button
                     type="button"
@@ -350,7 +388,7 @@ export function BlockCalendarModal({
                   <thead>
                     <tr>
                       <th className="sticky left-0 z-10 border border-slate-200 bg-slate-50 px-2 py-2 text-left text-[11px] font-bold uppercase text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                        Giờ (UTC)
+                        Giờ VN
                       </th>
                       {days.map((d, i) => {
                         const h = fmtDayHeader(d);
@@ -385,7 +423,7 @@ export function BlockCalendarModal({
                           const clickable = state === "free" || state === "mine-auto";
                           const isAnchor =
                             rangeAnchor !== null &&
-                            rangeAnchor.day.toISOString().slice(0, 10) === d.toISOString().slice(0, 10) &&
+                            ictDateKey(rangeAnchor.day) === ictDateKey(d) &&
                             rangeAnchor.blockIdx === idx;
                           const styles = cellStyle(state, isAnchor);
                           const label = cellLabel(state, booking);
@@ -527,8 +565,17 @@ function ConfirmModal({
     d.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
       minute: "2-digit",
-      timeZone: "UTC",
+      timeZone: "Asia/Ho_Chi_Minh",
     });
+  const fmtDate = (d: Date) =>
+    d.toLocaleDateString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: "Asia/Ho_Chi_Minh",
+    });
+  const startDate = fmtDate(start);
+  const endDate = fmtDate(end);
+  const sameDay = startDate === endDate;
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
@@ -559,11 +606,14 @@ function ConfirmModal({
             </p>
             <p className="text-base font-bold">{deviceName}</p>
             <p className="mt-2 text-xs uppercase tracking-wide text-slate-500">
-              Khoảng thời gian (UTC)
+              Khoảng thời gian (giờ Việt Nam)
             </p>
             <p className="font-mono text-sm font-bold text-indigo-700 dark:text-indigo-300">
               <Clock className="mr-1 inline h-3.5 w-3.5" />
-              {fmtTime(start)} – {fmtTime(end)} ({blockCount * BLOCK_HOURS} giờ
+              {sameDay
+                ? `${fmtTime(start)} – ${fmtTime(end)} ngày ${startDate}`
+                : `${fmtTime(start)} ${startDate} → ${fmtTime(end)} ${endDate}`}{" "}
+              ({blockCount * BLOCK_HOURS}h
               {blockCount > 1 ? ` · ${blockCount} block liền` : ""})
             </p>
           </div>
