@@ -35,6 +35,15 @@ PASSWORD_ALPHABET = "abcdefghkmnpqrstuvwxyz23456789"
 PASSWORD_LENGTH = 12
 
 
+def _inet_host(value) -> str:
+    """Drop the CIDR suffix from a Postgres INET / IPv4Interface — `ssh
+    user@192.168.2.214/32` fails DNS resolution, and `target_host` is
+    consumed as a bare hostname by the gateway ForceCommand wrapper."""
+    if value is None:
+        return ""
+    return str(value).split("/", 1)[0]
+
+
 def generate_password() -> str:
     """Sinh password 12 ký tự liền — unambiguous alphabet (bỏ 0/o/1/l/i/j).
 
@@ -139,7 +148,7 @@ async def issue_for_booking(
             # idempotent refresh of routing info (kit IP/user might have
             # been edited by admin since the session was minted) but NOT
             # the password — it stays constant for the whole slot.
-            existing.target_host = str(device.internal_ip)
+            existing.target_host = _inet_host(device.internal_ip)
             existing.target_port = device.ssh_port
             existing.target_user = device.ssh_user
             existing.ssh_username = ssh_username
@@ -158,7 +167,7 @@ async def issue_for_booking(
         existing.revoked_reason = None
         existing.warning_sent_at = None
         existing.regenerate_count = (existing.regenerate_count or 0) + 1
-        existing.target_host = str(device.internal_ip)
+        existing.target_host = _inet_host(device.internal_ip)
         existing.target_port = device.ssh_port
         existing.target_user = device.ssh_user
         existing.ssh_username = ssh_username
@@ -173,7 +182,7 @@ async def issue_for_booking(
         password_hash=pw_hash,
         password_ciphertext=pw_blob,
         expires_at=booking.end_time,
-        target_host=str(device.internal_ip),
+        target_host=_inet_host(device.internal_ip),
         target_port=device.ssh_port,
         target_user=device.ssh_user,
     )

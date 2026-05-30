@@ -102,7 +102,10 @@ async def _kill_pid(session: GatewaySession) -> bool:
         pid = int(session.active_pid)
         cmd = f"kill -HUP {pid} 2>/dev/null; sleep 1; kill -KILL {pid} 2>/dev/null; true"
     else:
-        target = shlex.quote(str(session.target_host))
+        # `session.target_host` is an INET column → str() includes "/32" which
+        # never appears in the ssh process cmdline (gateway_credentials writes
+        # bare IP). Strip it here so the pkill pattern still matches.
+        target = shlex.quote(str(session.target_host).split("/", 1)[0])
         # pkill -f matches the full command line of /usr/bin/ssh, which contains
         # the kit IP as the last positional arg.
         cmd = (

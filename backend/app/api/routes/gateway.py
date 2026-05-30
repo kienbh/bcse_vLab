@@ -37,6 +37,16 @@ from app.models import (
 from app.services import gateway_credentials
 from app.services.audit import audit_log
 
+
+def _inet_host(value) -> str:
+    """Strip the CIDR suffix from a Postgres INET / IPv4Interface so it can be
+    used as a plain hostname. `str(device.internal_ip)` returns "192.168.2.214/32"
+    which `ssh user@host` then tries to DNS-resolve verbatim and fails. The
+    gateway ForceCommand wrapper and the API response both need a bare IP."""
+    if value is None:
+        return ""
+    return str(value).split("/", 1)[0]
+
 bookings_router = APIRouter(prefix="/bookings", tags=["gateway"])
 gateway_router = APIRouter(prefix="/gateway", tags=["gateway-internal"])
 
@@ -181,7 +191,7 @@ async def _issue_or_rotate(
         jump_host=settings.JUMP_HOST_PUBLIC,
         jump_port=settings.JUMP_HOST_PUBLIC_PORT,
         target_user=device.ssh_user,
-        target_host=str(device.internal_ip),
+        target_host=_inet_host(device.internal_ip),
         target_port=device.ssh_port,
         ssh_command=ssh_command,
         expires_at=result.session.expires_at,
@@ -248,7 +258,7 @@ async def get_access_info(
         jump_host=settings.JUMP_HOST_PUBLIC,
         jump_port=settings.JUMP_HOST_PUBLIC_PORT,
         target_user=sess.target_user,
-        target_host=str(sess.target_host),
+        target_host=_inet_host(sess.target_host),
         target_port=sess.target_port,
         ssh_command_template=ssh_command,
         expires_at=sess.expires_at,
@@ -380,7 +390,7 @@ async def gateway_auth(
         ok=True,
         session_id=str(result.session.id),
         target_user=result.session.target_user,
-        target_host=str(result.session.target_host),
+        target_host=_inet_host(result.session.target_host),
         target_port=result.session.target_port,
         expires_at=result.session.expires_at,
     )
@@ -424,7 +434,7 @@ async def gateway_resolve_target(
     return {
         "session_id": str(sess.id),
         "target_user": sess.target_user,
-        "target_host": str(sess.target_host),
+        "target_host": _inet_host(sess.target_host),
         "target_port": sess.target_port,
         "expires_at": sess.expires_at.isoformat(),
     }
