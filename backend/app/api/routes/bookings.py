@@ -151,8 +151,9 @@ async def create_booking(
         special_access_id=None,
         start_time=payload.start_time,
         end_time=payload.end_time,
+        # status=SCHEDULED skips the M6 PENDING_APPROVAL queue — admin/lecturer
+        # self-booking is implicitly approved. decided_by/at audit who did it.
         status=BookingStatus.SCHEDULED,
-        approved=True,  # admin/lecturer self-booking is implicitly approved
         decided_by=user.id,
         decided_at=_utcnow(),
         notes=payload.notes,
