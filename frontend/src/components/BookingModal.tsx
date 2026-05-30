@@ -102,7 +102,18 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
         // Không auto-close nữa — để user chọn "Xem lịch đặt" hoặc tiếp tục đặt slot khác.
       } else {
         const err = await r.json().catch(() => ({}));
-        const code = err?.detail?.code ?? "ERROR";
+        // FastAPI uses two error shapes:
+        //   structured: {detail: {code: "X", hint: "..."}}
+        //   raw:        {detail: "Internal Server Error"}  ← 500s land here
+        // Fall through to HTTP status when neither shape gives a usable code,
+        // so we never just say "ERROR" with no signal at all.
+        const detail = err?.detail;
+        const code =
+          (typeof detail === "object" && detail?.code) ||
+          (typeof detail === "string" && detail) ||
+          `HTTP ${r.status}`;
+        const hint =
+          (typeof detail === "object" && (detail?.hint || detail?.message)) || null;
         const friendly: Record<string, string> = {
           BOOKING_CONFLICT: "Slot này trùng với lịch khác — chọn slot trống.",
           ACCESS_DENIED: "Bạn chưa được giảng viên cấp quyền cho kit này. Liên hệ giảng viên.",
@@ -122,7 +133,8 @@ export function BookingModal({ device, onClose, onBooked, initialStart, initialE
           DEVICE_NOT_FOUND: "Không tìm thấy thiết bị.",
           DEVICE_NOT_AVAILABLE: "Thiết bị đang bảo trì hoặc offline.",
         };
-        setResult({ ok: false, msg: friendly[code] ?? `Lỗi: ${code}` });
+        const base = friendly[code] ?? `Lỗi: ${code}`;
+        setResult({ ok: false, msg: hint ? `${base} (${hint})` : base });
       }
     } catch (e) {
       setResult({ ok: false, msg: String(e) });
