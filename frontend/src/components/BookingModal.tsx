@@ -393,6 +393,21 @@ export function SessionLaunchModal({
     minute: "2-digit",
   });
 
+  // VPS pool needs a second password — the backend admin key isn't installed
+  // on every VPS yet, so ssh-from-gateway falls back to password auth and the
+  // SV gets prompted a second time for `student@VPS_IP`. Detect by IP range
+  // (sv21..sv33 = 192.168.2.211–224, AI box = 192.168.2.98) so the warning
+  // banner only fires for cards that actually have the dual-prompt flow.
+  const isVpsTarget = (() => {
+    if (current.target_user !== "student") return false;
+    if (current.target_host === "192.168.2.98") return true;
+    const m = current.target_host.match(/^192\.168\.2\.(\d{1,3})$/);
+    if (!m) return false;
+    const last = parseInt(m[1], 10);
+    return last >= 211 && last <= 224;
+  })();
+  const KIT_LINUX_PASSWORD = "abc135";
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-sm"
@@ -423,6 +438,32 @@ export function SessionLaunchModal({
         </header>
 
         <div className="space-y-5 p-5">
+          {/* VPS-only big warning — VPS pool currently double-prompts.
+              Show the kit linux password up-front so the SV doesn't get stuck
+              guessing when the second prompt appears. */}
+          {isVpsTarget && (
+            <div className="rounded-xl border-2 border-amber-500 bg-amber-50 p-4 dark:border-amber-400 dark:bg-amber-950/40">
+              <p className="flex items-center gap-2 text-base font-extrabold uppercase tracking-wide text-amber-900 dark:text-amber-100">
+                ⚠ VPS dùng <span className="underline">2 password</span> — đọc kỹ
+              </p>
+              <ol className="mt-2 space-y-1.5 text-sm text-amber-900 dark:text-amber-100">
+                <li>
+                  <strong>Password 1</strong> (cho gateway <code className="font-mono">{current.ssh_username}@{current.jump_host}</code>): xem ô bên dưới — chỉ dùng được trong slot này.
+                </li>
+                <li>
+                  <strong>Password 2</strong> (cho <code className="font-mono">{current.target_user}@{current.target_host}</code> trên VPS):
+                  <span className="ml-2 inline-block rounded-md bg-amber-500 px-3 py-1 align-middle font-mono text-xl font-extrabold tracking-wider text-white shadow-md dark:bg-amber-400 dark:text-slate-900">
+                    {KIT_LINUX_PASSWORD}
+                  </span>
+                  <span className="ml-1.5 text-xs font-semibold">— cố định cho mọi VPS</span>
+                </li>
+              </ol>
+              <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-200">
+                Khi terminal hỏi password lần thứ 2 cho <code className="font-mono">student@...</code>, gõ <code className="font-mono font-bold">{KIT_LINUX_PASSWORD}</code> → vào thẳng shell.
+              </p>
+            </div>
+          )}
+
           {/* Step 1 — password */}
           <div>
             <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
@@ -486,13 +527,22 @@ export function SessionLaunchModal({
                 {copiedCmd ? "✓ Copied" : "Copy"}
               </button>
             </div>
-            <p className="mt-1.5 text-[11px] text-slate-500">
-              Nhập password phía trên khi được hỏi → vào thẳng kit{" "}
-              <code className="font-mono">
-                {current.target_user}@{current.target_host}
-              </code>
-              . Không cần nhập password lần hai.
-            </p>
+            {isVpsTarget ? (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Dán lệnh + password 1 (gateway) → khi terminal hỏi tiếp password cho{" "}
+                <code className="font-mono">{current.target_user}@{current.target_host}</code>, gõ{" "}
+                <code className="font-mono font-bold text-amber-700 dark:text-amber-300">{KIT_LINUX_PASSWORD}</code>{" "}
+                → vào thẳng shell.
+              </p>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                Nhập password phía trên khi được hỏi → vào thẳng kit{" "}
+                <code className="font-mono">
+                  {current.target_user}@{current.target_host}
+                </code>
+                . Không cần nhập password lần hai.
+              </p>
+            )}
           </div>
 
           {/* MobaXterm hint */}
