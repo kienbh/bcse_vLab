@@ -13,9 +13,9 @@ from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.models import Booking, BookingGrantedVia, BookingStatus, User
+from app.models.enums import UserRole
 from app.models.quota import UserQuota
 from app.schemas import BookingCreate, BookingOut
-from app.services.access_control import can_user_book_device
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -112,20 +112,65 @@ async def get_booking(
     return b
 
 
-@router.post("", status_code=status.HTTP_403_FORBIDDEN)
-async def create_booking_disabled(
-    _: User = Depends(get_current_user),
-) -> dict:
-    """M6: free self-booking is removed. Students use the lecturer's weekly
-    plan (auto-allocated group slots via POST /planned-slots/{id}/start) or
-    submit an ad-hoc request for approval (POST /requests)."""
-    raise HTTPException(
-        status.HTTP_403_FORBIDDEN,
-        detail={
-            "code": "FREE_BOOKING_DISABLED",
-            "hint": "Đặt lịch tự do đã bỏ — dùng lịch nhóm hoặc gửi đề xuất duyệt.",
-        },
+@router.post("", response_model=BookingOut, status_code=status.HTTP_201_CREATED)
+async def create_booking(
+    payload: BookingCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Booking:
+    """Create a booking.
+
+    Students/TAs follow the M6 flow: pick a group slot via
+    `POST /planned-slots/{id}/start` or submit an ad-hoc request via
+    `POST /requests`. Free self-booking via this endpoint is rejected for
+    them (`FREE_BOOKING_DISABLED`).
+
+    Admins and lecturers keep free-form booking — they need it for
+    pilot setup, debugging, demos, and one-off "I just need the kit
+    right now" cases. Access-control is bypassed (admin/lecturer are
+    trusted) but the GIST EXCLUDE constraint on the table still
+    prevents overlapping bookings.
+    """
+    if user.role not in (UserRole.ADMIN, UserRole.LECTURER):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "FREE_BOOKING_DISABLED",
+                "hint": "Đặt lịch tự do đã bỏ — dùng lịch nhóm hoặc gửi đề xuất duyệt.",
+            },
+        )
+
+    booking = Booking(
+        user_id=user.id,
+        device_id=payload.device_id,
+        # SPECIAL_ACCESS is the closest existing semantic — "granted outside
+        # the normal class flow". special_access_id stays NULL because no
+        # SpecialAccess row backs an admin override.
+        granted_via=BookingGrantedVia.SPECIAL_ACCESS,
+        class_id=None,
+        special_access_id=None,
+        start_time=payload.start_time,
+        end_time=payload.end_time,
+        status=BookingStatus.SCHEDULED,
+        approved=True,  # admin/lecturer self-booking is implicitly approved
+        decided_by=user.id,
+        decided_at=_utcnow(),
+        notes=payload.notes,
     )
+    db.add(booking)
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        msg = str(e.orig).lower()
+        if "no_overlap" in msg or "exclude" in msg:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "BOOKING_CONFLICT"},
+            )
+        raise
+    await db.refresh(booking)
+    return booking
 
 
 @router.post("/{booking_id}/cancel", response_model=BookingOut)
