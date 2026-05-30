@@ -4,6 +4,7 @@ import {
   Activity,
   Calendar,
   Cpu,
+  Globe,
   HardDrive,
   Loader2,
   Lock,
@@ -17,6 +18,14 @@ import {
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+
+/** VPS pool sv21..sv33 each have a public CNAME `{name}.bcse-vju.com` going
+ * through the bcse-vju Cloudflare Tunnel. Return null for VPS without a
+ * dedicated domain (ai01..ai03 share 192.168.2.98 and have no public DNS). */
+function getVpsDomain(name: string): string | null {
+  if (/^sv\d{2}$/i.test(name)) return `${name.toLowerCase()}.bcse-vju.com`;
+  return null;
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -434,6 +443,13 @@ export function DeviceCard({
       </div>
 
       <div className="flex flex-col gap-3 p-5">
+        {/* VPS public domain — sv21..sv33 each have {name}.bcse-vju.com via
+            CF Tunnel so SV can reach a web service they host on the VPS
+            from the public Internet (e.g. http://sv24.bcse-vju.com:port). */}
+        {family === "vps" && getVpsDomain(device.name) && (
+          <VpsDomainStrip domain={getVpsDomain(device.name)!} />
+        )}
+
         {/* Live ssh probe line */}
         <div
           className="flex items-center justify-between rounded-md bg-slate-100 px-3 py-1.5 font-mono text-[11px] text-slate-600 dark:bg-slate-900 dark:text-slate-300"
@@ -790,6 +806,38 @@ export function DeviceCard({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Public CNAME strip for VPS — shows `{name}.bcse-vju.com` with click-to-copy.
+ *  Visible regardless of session state since the domain is fixed metadata, not
+ *  a credential — SV can pre-publish it (e.g. embed in a README) before booking. */
+function VpsDomainStrip({ domain }: { domain: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(domain);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Domain công khai của VPS — click để copy. SV dùng để truy cập web service từ Internet (CF Tunnel, HTTPS tự cấp)."
+      className="flex items-center justify-between rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-left text-[11px] hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:hover:bg-indigo-950/50"
+    >
+      <span className="inline-flex items-center gap-1.5 font-mono text-indigo-700 dark:text-indigo-300">
+        <Globe className="h-3 w-3" />
+        {domain}
+      </span>
+      <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+        {copied ? "✓ Đã copy" : "Copy"}
+      </span>
+    </button>
   );
 }
 
