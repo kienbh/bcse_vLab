@@ -39,7 +39,19 @@ KIT_KEY_PATH="${KIT_KEY_PATH:-/etc/vlab/backend_ed25519}"
 # Space-separated `ip:port` list of kits the vlab user is allowed to forward
 # TCP to (used by `ssh -J vlab@gw kit-user@kit-ip`). Default = pilot kit
 # pool on the same LAN as the PVE host. Override with KIT_POOL=... env.
-KIT_POOL="${KIT_POOL:-192.168.2.93:22 192.168.2.100:22 192.168.2.121:22}"
+# Default pool covers the full pilot inventory (FPGA + Jetson + RPi + VPS +
+# AI box). Pulled from `SELECT DISTINCT host(internal_ip) || ':' || ssh_port
+# FROM devices`; keep in sync when adding new devices or rerun this script
+# with KIT_POOL=... to override.
+KIT_POOL="${KIT_POOL:-\
+192.168.2.93:22 192.168.2.98:22 192.168.2.100:22 192.168.2.121:22 \
+192.168.2.146:22 192.168.2.147:22 \
+192.168.2.211:22 192.168.2.212:22 192.168.2.213:22 192.168.2.214:22 \
+192.168.2.215:22 192.168.2.216:22 192.168.2.217:22 192.168.2.218:22 \
+192.168.2.219:22 192.168.2.221:22 192.168.2.222:22 192.168.2.223:22 \
+192.168.2.224:22 \
+192.168.20.106:22 192.168.20.107:22 192.168.20.108:22 192.168.20.109:22 \
+192.168.20.111:22 192.168.20.121:22}"
 
 # ------------------------------------------------------------------------- #
 # 1. Tools

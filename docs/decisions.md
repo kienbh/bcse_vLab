@@ -375,6 +375,43 @@ M5.7 phát ed25519 keypair cho từng user mỗi lần "Connect": backend mint k
 
 ---
 
+## ADR-0015: Pilot ops tweaks — PermitOpen toàn pool, rate-limit ×5, password student chung
+
+**Date**: 2026-05-31
+**Status**: Accepted
+**Decided by**: Thầy Kiên (durante session 2026-05-30..31)
+
+### Context
+
+3 vấn đề ops phát sinh khi mở pilot:
+
+1. **`/devices/vps` HTTP 429** — nginx zone `sv14_api` chỉ 100r/m + burst 50. Trang poll 16 VPS card × `/live-status` mỗi 8s ≈ 120 req/min → chạm trần ngay lần load.
+2. **SV không scp checkpoint** — `vlab` user trên PVE chỉ `PermitOpen` 3 IP FPGA cũ (192.168.2.93/100/121). Mọi `direct-tcpip` channel tới VPS/AI box bị reject → SCP qua ProxyJump fail. ForceCommand `vlab-jump.sh` không phải nguyên nhân (chỉ wrap session, không chặn TCP forward), nhưng SV vẫn thấy "yêu cầu password vlab".
+3. **Password kit khó nhớ** — `student@VPS` mặc định Proxmox provision = `Student@2024`. Mất tính nhất quán giữa kit, SV phải tra cứu.
+
+### Decision
+
+1. **nginx rate-limit ×5**: `sv14_api` 100r/m → **500r/m**, burst 50 → **100**. Per-IP, không phải global → SV khác không bị ảnh hưởng nếu 1 user spam. Auth zone (10r/m) + term zone (30r/m) giữ nguyên (vẫn chặn brute-force login).
+2. **PermitOpen mở rộng 25 IP**: hardcode toàn bộ unique `host(internal_ip)` từ bảng `devices`. Tránh `PermitOpen any` để giữ blast radius nhỏ — leak slot password chỉ forward được pool kit, không phải toàn LAN.
+3. **Password user `student` = `abc135` trên 13 VPS sv21..sv33 + AI box 192.168.2.98**. KHÔNG đụng FPGA / Jetson / RPi / SV14 host. Plaintext **không** commit vào repo (CLAUDE.md hard rule); ghi vào memory `project_vps_creds.md`. Gateway flow ADR-0013 không phụ thuộc password này (dùng `/etc/vlab/backend_ed25519` key).
+
+### Alternatives considered
+
+- **rate-limit**: tăng burst-only mà không tăng rate (chỉ buffer, không cứu sustained load). Hoặc làm aggregate `/api/devices/live-status` endpoint (đúng nhất nhưng 1-2h code, deferred).
+- **PermitOpen**: `PermitOpen any` — gọn nhưng SV leak slot pw → forward toàn LAN. Hoặc dynamic generate từ DB tại deploy-time (script cron) — tốt nhưng over-engineer cho pilot.
+- **password**: random mạnh per-VPS (an toàn nhất nhưng SV không nhớ nổi). Hoặc disable PasswordAuthentication chỉ key-only (an toàn nhất, nhưng cần install backend key trên TẤT CẢ VPS — script `install_backend_key_on_vps.py` mới cover 6/14).
+
+### Consequences
+
+- ✅ Pilot test SCP/rsync VPS work qua pattern chuẩn `ssh -J` (xem hướng dẫn SV trong memory + chat)
+- ✅ Dashboard `/devices/vps` không còn 429 với 16 VPS card poll
+- ✅ SV dễ nhớ pw `abc135` khi debug trực tiếp
+- ❌ Pw 6 ký tự yếu — chấp nhận trade-off cho pilot. Phải rotate trước khi mở SV thật.
+- 🔄 Khi pool thêm device mới: nhớ rerun `infrastructure/pve/setup-jump-host-pve.sh` (đã update KIT_POOL default) hoặc dùng script `c:\tmp\fix_permitopen.py`
+- 🔄 Khi pilot scale (50+ SV cùng vào): rate-limit 500r/m có thể vẫn chạm trần → cần aggregate endpoint (M7 candidate)
+
+---
+
 ## Template cho ADR mới
 
 Khi Claude Code có quyết định kiến trúc mới, append vào file này theo format:
