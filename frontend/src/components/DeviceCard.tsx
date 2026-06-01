@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { apiGet } from "@/lib/auth";
+
 /** VPS pool sv21..sv33 each have a public CNAME `{name}.bcse-vju.com` going
  * through the bcse-vju Cloudflare Tunnel. Return null for VPS without a
  * dedicated domain (ai01..ai03 share 192.168.2.98 and have no public DNS). */
@@ -271,10 +273,10 @@ export function DeviceCard({
 
   const poll = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/devices/${device.id}/live-status`, {
-        credentials: "include",
-        cache: "no-store",
-      });
+      // apiGet auto-refreshes the access cookie once on 401 — without this,
+      // a tab idle past JWT_ACCESS_TOKEN_EXPIRE_MINUTES (60m) starts showing
+      // "API lỗi" on every card until a hard reload.
+      const r = await apiGet(`/devices/${device.id}/live-status`);
       if (r.ok) {
         setLive(await r.json());
         setError(null);

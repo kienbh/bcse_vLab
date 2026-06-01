@@ -8,7 +8,7 @@ import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
-import { useUser } from "@/lib/auth";
+import { apiGet, useUser } from "@/lib/auth";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -187,7 +187,9 @@ function FamilyInner({
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/devices`, { credentials: "include" });
+      // apiGet refreshes the access cookie once on 401 — keeps the dashboard
+      // working in a tab that's been open past the 60-min JWT TTL.
+      const r = await apiGet(`/devices`);
       if (!r.ok) {
         setError(`HTTP ${r.status}`);
         return;
@@ -210,14 +212,8 @@ function FamilyInner({
       // either is active for this VPS, "ĐẶT BLOCK NGAY" otherwise).
       if (family === "vps") {
         const [rg, rb] = await Promise.all([
-          fetch(`${API}/vps-access/grants/mine`, {
-            credentials: "include",
-            cache: "no-store",
-          }),
-          fetch(`${API}/vps-access/blocks/mine`, {
-            credentials: "include",
-            cache: "no-store",
-          }),
+          apiGet(`/vps-access/grants/mine`),
+          apiGet(`/vps-access/blocks/mine`),
         ]);
         if (rg.ok) {
           const all: {

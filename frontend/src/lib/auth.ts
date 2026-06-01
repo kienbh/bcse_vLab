@@ -83,6 +83,29 @@ export async function apiPost(path: string, body?: unknown): Promise<Response> {
   return r;
 }
 
+/**
+ * GET helper mirroring apiPost — refreshes once on 401 then retries. Use for
+ * any polling/dashboard fetch (e.g. live-status, devices list) so a tab open
+ * past the 60-min access-token TTL doesn't suddenly show 401 banners.
+ */
+export async function apiGet(path: string, init?: RequestInit): Promise<Response> {
+  const opts: RequestInit = {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+    ...init,
+  };
+  let r = await fetch(`${API}${path}`, opts);
+  if (r.status === 401) {
+    const rf = await fetch(`${API}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (rf.ok) r = await fetch(`${API}${path}`, opts);
+  }
+  return r;
+}
+
 export function useUser(): UserState {
   const [user, setUser] = useState<User | null>(cached);
   const [loading, setLoading] = useState<boolean>(cached === null);
