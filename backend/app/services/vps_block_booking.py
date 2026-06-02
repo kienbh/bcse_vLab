@@ -41,12 +41,12 @@ from app.services.device_prober import probe_tcp
 
 BLOCK_HOURS = 6
 BLOCKS_PER_DAY = 4
-# 2026-05-27 (final): 6h/block × 4 blocks/day (UTC 00/06/12/18). SV picks any
-# free block in present or future, up to 4 consecutive (24h) per booking —
-# BUT may only hold ONE active/future booking row at a time (no hoarding
-# multiple spots). After their booking ends they can book again.
-# Longer than 24h continuous → email lecturer for a long grant.
-MAX_BLOCKS_AUTO = 4
+# 2026-06-02 (revert to original spec): 6h/block × 4 blocks/day (UTC 00/06/12/18).
+# SV picks any free block in present or future, BUT exactly ONE block per booking
+# AND only ONE active/future booking row at a time across all VPS. No multi-block
+# ranges, no hoarding spots. After their block ends (or they cancel), they can
+# book the next one. Longer than 6h continuous → email lecturer for a long grant.
+MAX_BLOCKS_AUTO = 1
 
 
 class BlockBookingError(Exception):

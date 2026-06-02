@@ -11,7 +11,6 @@ const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 const BLOCKS_PER_DAY = 4;
 const BLOCK_HOURS = 6;
 const DAYS_AHEAD = 7;
-const MAX_BLOCKS_PER_BOOKING = 4; // 24h ceiling, matches backend MAX_BLOCKS_AUTO
 const HOUR_MS = 3600_000;
 const DAY_MS = 86_400_000;
 const ICT_OFFSET_MS = 7 * HOUR_MS;
@@ -111,12 +110,9 @@ export function BlockCalendarModal({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Range selection: first click sets the anchor, second click in the SAME day
-  // and later block confirms. ESC or click outside resets.
-  const [rangeAnchor, setRangeAnchor] = useState<{ day: Date; blockIdx: number } | null>(null);
-  // Confirm dialog state — either a book (range) or a cancel action.
+  // Confirm dialog state — either a book (single block) or a cancel action.
   const [confirmAction, setConfirmAction] = useState<
-    | { kind: "book"; day: Date; fromIdx: number; toIdx: number }
+    | { kind: "book"; day: Date; blockIdx: number }
     | { kind: "cancel"; booking: BlockBooking; blockIdx: number; day: Date }
     | null
   >(null);
@@ -220,7 +216,6 @@ export function BlockCalendarModal({
     const { state, booking } = cellState(day, blockIdx);
 
     if (state === "mine-auto" && booking) {
-      setRangeAnchor(null);
       setConfirmAction({ kind: "cancel", booking, day, blockIdx });
       return;
     }
@@ -228,46 +223,15 @@ export function BlockCalendarModal({
       // past / taken / mine-grant → not clickable
       return;
     }
-
-    // free cell — range selection
-    if (rangeAnchor === null) {
-      setRangeAnchor({ day, blockIdx });
-      return;
-    }
-    const sameDay = ictDateKey(rangeAnchor.day) === ictDateKey(day);
-    if (!sameDay) {
-      // different day → reset anchor to the new cell
-      setRangeAnchor({ day, blockIdx });
-      return;
-    }
-    const fromIdx = Math.min(rangeAnchor.blockIdx, blockIdx);
-    const toIdx = Math.max(rangeAnchor.blockIdx, blockIdx);
-    // Sanity: every block in [from, to] must be free
-    for (let i = fromIdx; i <= toIdx; i++) {
-      if (cellState(day, i).state !== "free") {
-        setErr("Dải chọn có block đã có người đặt — hãy chọn lại.");
-        setRangeAnchor(null);
-        return;
-      }
-    }
-    const span = toIdx - fromIdx + 1;
-    if (span > MAX_BLOCKS_PER_BOOKING) {
-      setErr(
-        `Tối đa ${MAX_BLOCKS_PER_BOOKING} block/lần (${MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h). ` +
-          `Cần dài hơn → email giảng viên xin grant.`,
-      );
-      setRangeAnchor(null);
-      return;
-    }
-    setRangeAnchor(null);
-    setConfirmAction({ kind: "book", day, fromIdx, toIdx });
+    // Single-block booking — open confirm dialog directly.
+    setConfirmAction({ kind: "book", day, blockIdx });
   };
 
   const submitBook = async () => {
     if (!confirmAction || confirmAction.kind !== "book") return;
     setBusy(true);
-    const startISO = blockStart(confirmAction.day, confirmAction.fromIdx).toISOString();
-    const endISO = blockEnd(confirmAction.day, confirmAction.toIdx).toISOString();
+    const startISO = blockStart(confirmAction.day, confirmAction.blockIdx).toISOString();
+    const endISO = blockEnd(confirmAction.day, confirmAction.blockIdx).toISOString();
     const r = await apiPost(`/vps-access/${deviceId}/blocks`, {
       start_time: startISO,
       end_time: endISO,
@@ -339,11 +303,9 @@ export function BlockCalendarModal({
           <p className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
-              <strong>Mỗi SV chỉ giữ 1 lịch tại 1 lúc.</strong> Click 1 block để
-              chọn, click block thứ 2 cùng ngày để đặt dải (tối đa{" "}
-              {MAX_BLOCKS_PER_BOOKING} block = {MAX_BLOCKS_PER_BOOKING * BLOCK_HOURS}h).
-              Đến giờ là vào dùng. Lịch chạy xong (hoặc huỷ) mới đặt được lịch mới.
-              Cần dài hơn 24h?{" "}
+              <strong>Mỗi SV chỉ giữ 1 block ({BLOCK_HOURS}h) tại 1 lúc.</strong>{" "}
+              Click 1 block trống để đặt. Đến giờ là vào dùng. Block chạy xong
+              (hoặc huỷ) mới đặt được block mới. Cần dài hơn {BLOCK_HOURS}h?{" "}
               <Link
                 href="/vps-access"
                 className="font-bold underline hover:text-amber-700"
@@ -370,19 +332,6 @@ export function BlockCalendarModal({
             </div>
           ) : (
             <>
-              {rangeAnchor && (
-                <div className="mb-3 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
-                  ✏️ Đã chọn block đầu ({fmtBlockLabel(rangeAnchor.blockIdx)} ngày {fmtDayHeader(rangeAnchor.day).date}, giờ VN).
-                  Click block thứ 2 cùng ngày (sau hoặc trước cũng được) để đặt dải, hoặc click lại block đầu để chỉ đặt 1 block.{" "}
-                  <button
-                    type="button"
-                    onClick={() => setRangeAnchor(null)}
-                    className="ml-1 font-bold underline"
-                  >
-                    Bỏ chọn
-                  </button>
-                </div>
-              )}
               <div className="overflow-x-auto">
                 <table className="w-full border-collapse text-sm">
                   <thead>
@@ -421,11 +370,7 @@ export function BlockCalendarModal({
                         {days.map((d, di) => {
                           const { state, booking } = cellState(d, idx);
                           const clickable = state === "free" || state === "mine-auto";
-                          const isAnchor =
-                            rangeAnchor !== null &&
-                            ictDateKey(rangeAnchor.day) === ictDateKey(d) &&
-                            rangeAnchor.blockIdx === idx;
-                          const styles = cellStyle(state, isAnchor);
+                          const styles = cellStyle(state);
                           const label = cellLabel(state, booking);
                           return (
                             <td
@@ -472,10 +417,7 @@ export function BlockCalendarModal({
   );
 }
 
-function cellStyle(state: CellState, isAnchor = false): string {
-  if (isAnchor) {
-    return "bg-amber-300 border-amber-500 text-amber-950 ring-2 ring-amber-500 dark:bg-amber-700 dark:border-amber-400 dark:text-amber-50";
-  }
+function cellStyle(state: CellState): string {
   switch (state) {
     case "past":
       return "bg-slate-100 border-slate-200 opacity-40 dark:bg-slate-900/50 dark:border-slate-800 text-slate-500";
@@ -514,7 +456,7 @@ function cellLabel(state: CellState, booking: BlockBooking | undefined): string 
 function cellTitle(state: CellState, booking: BlockBooking | undefined): string {
   switch (state) {
     case "free":
-      return "Click để chọn — click block thứ 2 cùng ngày để đặt dải";
+      return `Click để đặt block ${BLOCK_HOURS}h này`;
     case "mine-auto":
       return "Block bạn đã đặt — click để huỷ";
     case "mine-grant":
@@ -543,7 +485,7 @@ function ConfirmModal({
   onCancel,
 }: {
   action:
-    | { kind: "book"; day: Date; fromIdx: number; toIdx: number }
+    | { kind: "book"; day: Date; blockIdx: number }
     | { kind: "cancel"; booking: BlockBooking; blockIdx: number; day: Date };
   busy: boolean;
   deviceName: string;
@@ -551,16 +493,8 @@ function ConfirmModal({
   onCancel: () => void;
 }) {
   const isBook = action.kind === "book";
-  const start =
-    action.kind === "book"
-      ? blockStart(action.day, action.fromIdx)
-      : blockStart(action.day, action.blockIdx);
-  const end =
-    action.kind === "book"
-      ? blockEnd(action.day, action.toIdx)
-      : blockEnd(action.day, action.blockIdx);
-  const blockCount =
-    action.kind === "book" ? action.toIdx - action.fromIdx + 1 : 1;
+  const start = blockStart(action.day, action.blockIdx);
+  const end = blockEnd(action.day, action.blockIdx);
   const fmtTime = (d: Date) =>
     d.toLocaleTimeString("vi-VN", {
       hour: "2-digit",
@@ -613,8 +547,7 @@ function ConfirmModal({
               {sameDay
                 ? `${fmtTime(start)} – ${fmtTime(end)} ngày ${startDate}`
                 : `${fmtTime(start)} ${startDate} → ${fmtTime(end)} ${endDate}`}{" "}
-              ({blockCount * BLOCK_HOURS}h
-              {blockCount > 1 ? ` · ${blockCount} block liền` : ""})
+              ({BLOCK_HOURS}h)
             </p>
           </div>
           {isBook ? (
