@@ -371,6 +371,7 @@ def _block_svc_to_http(err: block_svc.BlockBookingError) -> HTTPException:
         "VPS_OFFLINE": status.HTTP_503_SERVICE_UNAVAILABLE,
         "VPS_MAINTENANCE": status.HTTP_503_SERVICE_UNAVAILABLE,
         "RESERVED_DEVICE": status.HTTP_403_FORBIDDEN,
+        "EXTERNAL_USER_NO_AUTO_BOOK": status.HTTP_403_FORBIDDEN,
     }
     return HTTPException(
         mapping.get(err.code, status.HTTP_400_BAD_REQUEST),

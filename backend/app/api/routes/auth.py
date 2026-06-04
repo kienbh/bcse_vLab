@@ -47,6 +47,7 @@ def _user_dict(u: User) -> dict[str, Any]:
         "role": u.role.value,
         "student_code": u.student_code,
         "is_active": u.is_active,
+        "external": u.external,
         "must_change_password": u.must_change_password,
     }
 
@@ -209,6 +210,7 @@ async def admin_create_user(
         password_hash=auth_service.hash_password(initial),
         must_change_password=True,
         is_active=True,
+        external=payload.external,
     )
     db.add(u)
     await db.flush()
@@ -342,6 +344,45 @@ async def admin_change_role(
         db, actor=admin, action="user.role.change",
         target_type="user", target_id=str(target.id),
         details={"from": old.value, "to": role.value}, request=request,
+    )
+    await db.commit()
+    return _user_dict(target)
+
+
+@router.patch("/admin/users/{user_id}/external")
+async def admin_set_external(
+    user_id: UUID,
+    external: bool,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Toggle the external-team flag on a user account.
+
+    An external user is visibility-scoped: list_devices returns only what
+    they've been granted via SpecialAccess, and the VPS self-book block flow
+    refuses them (EXTERNAL_USER_NO_AUTO_BOOK). Use this for accounts like
+    ESAS-BCSE that should be able to see/use a specific reserved device set
+    and nothing else.
+    """
+    target = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "USER_NOT_FOUND"},
+        )
+    if target.id == admin.id and external:
+        # Don't lock yourself out of admin tooling by flipping the flag on self.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail={"code": "CANNOT_EXTERNALISE_SELF"},
+        )
+    old = target.external
+    target.external = external
+    await audit_log(
+        db, actor=admin, action="user.external.change",
+        target_type="user", target_id=str(target.id),
+        details={"from": old, "to": external}, request=request,
     )
     await db.commit()
     return _user_dict(target)

@@ -165,6 +165,14 @@ async def book_block(
     The student gets whatever's left of the block; the next block opens for
     a fresh round of FIFO at the next boundary.
     """
+    if student.external:
+        # External team accounts (e.g. ESAS) live entirely in the admin-granted
+        # SpecialAccess lane — they have no business in the FCFS block queue.
+        raise BlockBookingError(
+            "EXTERNAL_USER_NO_AUTO_BOOK",
+            "Tài khoản external chỉ truy cập VPS qua quyền admin cấp, "
+            "không tự đặt block được.",
+        )
     device = await _ensure_vps(db, device_id)
     _validate_window(start_time, end_time)
 

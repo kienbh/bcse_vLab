@@ -36,6 +36,20 @@ async def list_devices(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[Device]:
+    if user.external:
+        # External users only see devices they've been granted via SpecialAccess.
+        # Keeps an ESAS-style account from seeing the BCSE student VPS pool, kits,
+        # etc. — they don't even know the device names exist.
+        result = await db.execute(
+            select(Device)
+            .join(SpecialAccess, SpecialAccess.device_id == Device.id)
+            .where(
+                SpecialAccess.user_id == user.id,
+                SpecialAccess.revoked_at.is_(None),
+            )
+            .order_by(Device.name)
+        )
+        return list(result.scalars().unique().all())
     result = await db.execute(select(Device).order_by(Device.name))
     return list(result.scalars().all())
 
@@ -123,6 +137,17 @@ async def _user_can_view_device_schedule(
     - have an active enrollment in a class that has an active assignment for this device, or
     - have an active special_access for this device.
     """
+    if user.external:
+        # External users skip the role-based bypass — they only see what
+        # they have an active SpecialAccess for, nothing else.
+        res = await db.execute(
+            select(SpecialAccess.id).where(
+                SpecialAccess.user_id == user.id,
+                SpecialAccess.device_id == device_id,
+                SpecialAccess.revoked_at.is_(None),
+            ).limit(1)
+        )
+        return res.first() is not None
     if user.role in (UserRole.ADMIN, UserRole.LECTURER):
         return True
     res = await db.execute(

@@ -14,3 +14,4 @@ class UserOut(BaseModel):
     role: UserRole
     student_code: str | None
     is_active: bool
+    external: bool
