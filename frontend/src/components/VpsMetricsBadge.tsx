@@ -133,12 +133,32 @@ export function VpsMetricsBadge({
         />
         {diskQuotaGb && diskQuotaGb > 0 && metrics.disk ? (
           (() => {
-            // `df` reports the host filesystem on co-located VPS — cap at the
-            // declared quota so the bar never reads > 100 %.
-            const usedGb = Math.min(
-              (metrics.disk.total_bytes - metrics.disk.free_bytes) / 1024 ** 3,
-              diskQuotaGb,
-            );
+            const totalGb = metrics.disk.total_bytes / 1024 ** 3;
+            const usedGb =
+              (metrics.disk.total_bytes - metrics.disk.free_bytes) / 1024 ** 3;
+            // Two cases:
+            // - Solo VPS (sv21..sv33): each LXC has its own filesystem so
+            //   `df` total ≈ quota. Denominator = quota (matches the spec
+            //   tile), numerator = real `df` used.
+            // - Shared host (ai01/02/03): cùng 1 ổ vật lý 1.8 TB. There's
+            //   no per-VPS used we can derive from `df`; show the host's
+            //   real numbers with a "chia với host" subtitle so the SV
+            //   knows this is shared and not the per-VPS quota.
+            const isSharedHost = totalGb > diskQuotaGb * 1.5;
+            if (isSharedHost) {
+              const pct = Math.round((usedGb / totalGb) * 100);
+              const color =
+                pct >= 80 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : "bg-emerald-500";
+              return (
+                <Cell
+                  label="Storage (host)"
+                  big={`${usedGb.toFixed(0)} / ${totalGb.toFixed(0)} GB`}
+                  sub={`chia với host · quota ${diskQuotaGb} GB`}
+                  pct={pct}
+                  barColor={color}
+                />
+              );
+            }
             const pct = Math.round((usedGb / diskQuotaGb) * 100);
             const color =
               pct >= 80 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : "bg-emerald-500";
