@@ -6,22 +6,28 @@ import { type VpsMetrics } from "@/lib/useVpsMetrics";
 
 /** Live load strip on a GPU-VPS card.
  *
- * Single question the SV is trying to answer: "máy này load được model của em
- * không?" — that's a VRAM question. We tier on **free VRAM** and surface
- * util/temp/processes in the sidebar where someone already holding a block
- * can act on them.
+ * Two cells SVs care about before booking:
+ *   - VRAM: "có chỗ load model của em không?" — tiers on free VRAM.
+ *   - Storage: "đã dùng bao nhiêu / quota được cấp" — denominator is the
+ *     card's declared `disk_gb` quota, NOT `df` total. On co-located VPS
+ *     (ai01/02/03 share host bcseserver1) `df` reports the host filesystem
+ *     (1.8 TB) which would contradict the 300 GB spec; we cap used at
+ *     quota so the bar never reads >100 %, and the numerator is what `df`
+ *     reports as used — accurate for solo VPS, conservative for shared.
  *
- * Disk intentionally omitted: on co-located VPS (ai01/02/03 share host
- * bcseserver1) `df /home` returns the host's filesystem, not the per-VPS
- * quota, so the live number would contradict the card's declared `disk_gb`
- * spec and confuse SVs. The static spec tile keeps the nominal quota.
+ * GPU util / temperature / process list stay in the sidebar where someone
+ * already holding a block can act on them.
  */
 export function VpsMetricsBadge({
   metrics,
   loading,
+  diskQuotaGb,
 }: {
   metrics: VpsMetrics | null | undefined;
   loading: boolean;
+  /** From `device.capabilities.disk_gb` — the quota shown on the spec tile.
+   *  When provided, the storage cell uses this as its denominator. */
+  diskQuotaGb?: number | null;
 }) {
   if (loading && !metrics) {
     return (
@@ -117,13 +123,37 @@ export function VpsMetricsBadge({
         </span>
       </div>
 
-      <Cell
-        label="VRAM"
-        big={`${vramUsedGb.toFixed(1)} / ${vramTotalGb.toFixed(0)} GB`}
-        sub="đã dùng"
-        pct={vramUsedPct}
-        barColor={tone.bar}
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <Cell
+          label="VRAM"
+          big={`${vramUsedGb.toFixed(1)} / ${vramTotalGb.toFixed(0)} GB`}
+          sub="đã dùng"
+          pct={vramUsedPct}
+          barColor={tone.bar}
+        />
+        {diskQuotaGb && diskQuotaGb > 0 && metrics.disk ? (
+          (() => {
+            // `df` reports the host filesystem on co-located VPS — cap at the
+            // declared quota so the bar never reads > 100 %.
+            const usedGb = Math.min(
+              (metrics.disk.total_bytes - metrics.disk.free_bytes) / 1024 ** 3,
+              diskQuotaGb,
+            );
+            const pct = Math.round((usedGb / diskQuotaGb) * 100);
+            const color =
+              pct >= 80 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : "bg-emerald-500";
+            return (
+              <Cell
+                label="Storage"
+                big={`${usedGb.toFixed(0)} / ${diskQuotaGb} GB`}
+                sub="đã dùng / cấp phát"
+                pct={pct}
+                barColor={color}
+              />
+            );
+          })()
+        ) : null}
+      </div>
     </div>
   );
 }

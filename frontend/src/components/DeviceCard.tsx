@@ -558,7 +558,15 @@ export function DeviceCard({
                 parent piped a metrics snapshot down. Replaces the need to
                 SSH in just to peek at GPU/VRAM/disk before booking. */}
             {device.capabilities.tier === "gpu" && (vpsMetrics || vpsMetricsLoading) && (
-              <VpsMetricsBadge metrics={vpsMetrics} loading={vpsMetricsLoading} />
+              <VpsMetricsBadge
+                metrics={vpsMetrics}
+                loading={vpsMetricsLoading}
+                diskQuotaGb={
+                  typeof device.capabilities.disk_gb === "number"
+                    ? device.capabilities.disk_gb
+                    : null
+                }
+              />
             )}
             <div className="grid grid-cols-3 gap-2">
               {[
