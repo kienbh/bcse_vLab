@@ -22,6 +22,7 @@ from app.api.routes import (
     sessions,
     sso,
     vps_access,
+    vps_metrics,
 )
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
     app.include_router(vps_access.router, prefix="/api")
+    app.include_router(vps_metrics.router, prefix="/api")
 
     @app.get("/")
     async def root() -> dict[str, str]:

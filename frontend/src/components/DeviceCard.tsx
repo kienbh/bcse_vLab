@@ -20,6 +20,8 @@ import {
 import { useCallback, useEffect, useState } from "react";
 
 import { apiGet } from "@/lib/auth";
+import type { VpsMetrics } from "@/lib/useVpsMetrics";
+import { VpsMetricsBadge } from "@/components/VpsMetricsBadge";
 
 /** VPS pool sv21..sv33 each have a public CNAME `{name}.bcse-vju.com` going
  * through the bcse-vju Cloudflare Tunnel. Return null for VPS without a
@@ -250,6 +252,13 @@ export interface DeviceCardProps {
   vpsHasOtherHeldBlock?: boolean;
   /** VPS-only: cancel the SV's active auto block on this card's device. */
   onCancelMyBlock?: (device: Device) => void;
+  /** VPS-GPU only: live metrics snapshot piped down from FamilyDashboard's
+   *  bulk hook. `undefined` = parent hasn't shipped it (non-GPU card or hook
+   *  still doing first fetch). When present, badge replaces the static
+   *  capabilities chip with a live GPU/VRAM/disk strip. */
+  vpsMetrics?: VpsMetrics | null;
+  /** VPS-GPU only: parent's bulk loading flag, drives the badge's spinner. */
+  vpsMetricsLoading?: boolean;
 }
 
 export function DeviceCard({
@@ -264,6 +273,8 @@ export function DeviceCard({
   vpsUpcomingBlock = null,
   vpsHasOtherHeldBlock = false,
   onCancelMyBlock,
+  vpsMetrics,
+  vpsMetricsLoading = false,
 }: DeviceCardProps) {
   const [live, setLive] = useState<LiveStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -542,6 +553,12 @@ export function DeviceCard({
                   </span>
                 )}
               </div>
+            )}
+            {/* M6.5 — live load strip. Renders for any VPS-GPU card whose
+                parent piped a metrics snapshot down. Replaces the need to
+                SSH in just to peek at GPU/VRAM/disk before booking. */}
+            {device.capabilities.tier === "gpu" && (vpsMetrics || vpsMetricsLoading) && (
+              <VpsMetricsBadge metrics={vpsMetrics} loading={vpsMetricsLoading} />
             )}
             <div className="grid grid-cols-3 gap-2">
               {[

@@ -412,6 +412,44 @@ M5.7 phát ed25519 keypair cho từng user mỗi lần "Connect": backend mint k
 
 ---
 
+## ADR-0016: Redis wire-up đầu tiên — cache snapshot metrics VPS-GPU (M6.5)
+
+**Date**: 2026-06-09
+**Status**: Accepted
+**Decided by**: Thầy Kiên + Claude Code (M6.5)
+
+### Context
+
+UI list VPS-GPU hiện không hiển thị tải máy — SV không biết máy nào đang rỗi, kết quả là book "đại" rồi mới SSH vào kiểm tra. Cần badge GPU util/VRAM/disk trên list view + sidebar dashboard chi tiết khi SV đang giữ block.
+
+Data source: `nvidia-smi` + `df` qua SSH (admin key, reuse `ssh_manager`). Khi 10 SV cùng mở dashboard list, nếu mỗi user gọi SSH thẳng → 10× SSH RTT/VPS mỗi 30s. Cần cache layer.
+
+Redis declared trong `docker-compose.yml` + `requirements.txt` từ M0 nhưng chưa wire vào codebase. M6.5 là wire đầu tiên — set precedent cách dùng.
+
+### Decision
+
+1. **Redis async (`redis.asyncio.from_url`)** với TTL 25s, key `vps:metrics:{device_id}`. Frontend poll 30s → cache hit gần như chắc chắn trong steady-state. Cache miss đầu tiên trả 1 SSH RTT (~5ms LAN), 29s tiếp theo free.
+2. **Per-device `asyncio.Lock`** dedupe concurrent miss bên trong 1 backend worker — 10 SV cùng cache-miss → 1 SSH thực tế, 9 ride cache.
+3. **Fallback graceful** khi Redis down: in-process dict cùng TTL contract + log warning. Metrics view không kéo phần còn lại của site xuống nếu Redis chết.
+4. **Lazy connect**: client tạo ở lần gọi đầu, không init lúc app boot — backend khởi động được kể cả Redis chưa lên.
+
+### Alternatives considered
+
+- **In-process dict only**: gọn nhất, nhưng nếu pilot scale lên multi-worker uvicorn (chưa, hiện 1 worker) thì mỗi worker SSH riêng → mất cache benefit. Redis sẵn rồi, dùng luôn cho prepare.
+- **SSE push thay vì cache + polling**: realtime hơn nhưng cần daemon trên VPS push lên + persistent connection từ portal. Over-engineer cho pilot.
+- **TTL 60s**: nhẹ hơn 2.4× nhưng metric trễ — SV thấy "GPU 5%" trong 1 phút sau khi máy đã bị full bởi user khác. 25s là điểm cân bằng cho pilot (<20 user concurrent).
+- **Cache disable hoàn toàn (SSH mỗi call)**: đơn giản nhất nhưng 10 SV mở list = 10× SSH/VPS/30s = 1200 SSH/giờ/VPS. Không scale.
+
+### Consequences
+
+- ✅ Wire mẫu cho Redis use case khác sau này (session count, rate-limit counters, audit log buffer, ...)
+- ✅ Cache TTL ngắn (25s) — không cần invalidation, expire tự lo
+- ✅ Fallback in-memory giữ metrics view sống khi Redis ops downtime
+- ❌ Thêm 1 process dependency cho dev local — nhưng compose đã chạy Redis sẵn từ M0
+- 🔄 Khi pilot scale multi-worker (uvicorn `--workers N`) hoặc multi-instance (canary deploy): Redis lock cần upgrade thành Redis SETNX để dedupe cross-process, asyncio.Lock chỉ scope trong 1 process
+
+---
+
 ## Template cho ADR mới
 
 Khi Claude Code có quyết định kiến trúc mới, append vào file này theo format:

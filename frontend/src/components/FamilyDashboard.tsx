@@ -8,7 +8,9 @@ import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
+import { VpsMetricsSidebar } from "@/components/VpsMetricsSidebar";
 import { apiGet, useUser } from "@/lib/auth";
+import { useVpsMetricsBulk } from "@/lib/useVpsMetrics";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "/api";
 
@@ -184,6 +186,14 @@ function FamilyInner({
   // Refresh button state — disable + spin while load() is in flight so the
   // user gets immediate feedback the click was registered.
   const [refreshing, setRefreshing] = useState(false);
+
+  // M6.5 — bulk GPU-VPS metrics. Polls every 30 s, paused when the tab is
+  // hidden. Disabled entirely on non-VPS pages so FPGA/Jetson/RPi tabs
+  // don't spam an endpoint that will only ever return [].
+  const { byId: metricsById, loading: metricsLoading } = useVpsMetricsBulk(
+    "gpu",
+    { enabled: family === "vps" },
+  );
 
   const load = useCallback(async () => {
     try {
@@ -390,21 +400,40 @@ function FamilyInner({
           </p>
         </div>
       ) : (
-        renderByTier(
-          devices,
-          family,
-          family === "vps" ? openCalendar : setPicked,
-          connect,
-          family === "vps"
-            ? {
-                vpsGrants: vpsGrants ?? new Map(),
-                grantsLoaded: vpsGrants !== null,
-                onVpsConnect: connectVps,
-                heldBlock,
-                onCancelBlock: openCalendar,
-              }
-            : undefined,
-        )
+        <>
+          {/* M6.5 — sidebar live-metrics dashboard for the GPU-VPS the SV
+              is currently blocking. Sits above the device grid so it's the
+              first thing they see when returning to the tab. Only renders
+              when (a) family is vps, (b) they hold an *active* block, and
+              (c) the blocked device is on the GPU tier — non-GPU VPS don't
+              have nvidia-smi to query. */}
+          {family === "vps" &&
+            heldBlock?.state === "active" &&
+            (() => {
+              const d = devices.find((x) => x.id === heldBlock.device_id);
+              if (!d || d.capabilities?.tier !== "gpu") return null;
+              return (
+                <VpsMetricsSidebar deviceId={d.id} deviceName={d.name} />
+              );
+            })()}
+          {renderByTier(
+            devices,
+            family,
+            family === "vps" ? openCalendar : setPicked,
+            connect,
+            family === "vps"
+              ? {
+                  vpsGrants: vpsGrants ?? new Map(),
+                  grantsLoaded: vpsGrants !== null,
+                  onVpsConnect: connectVps,
+                  heldBlock,
+                  onCancelBlock: openCalendar,
+                  metricsById,
+                  metricsLoading,
+                }
+              : undefined,
+          )}
+        </>
       )}
 
       {picked && (
@@ -530,6 +559,8 @@ function renderByTier(
       state: "active" | "upcoming";
     } | null;
     onCancelBlock: (d: Device) => void;
+    metricsById: Map<string, import("@/lib/useVpsMetrics").VpsMetrics>;
+    metricsLoading: boolean;
   },
 ): React.ReactNode {
   const held = vpsExtras?.heldBlock ?? null;
@@ -562,6 +593,10 @@ function renderByTier(
                 held !== null && held.device_id !== d.id
               }
               onCancelMyBlock={vpsExtras?.onCancelBlock}
+              vpsMetrics={vpsExtras?.metricsById.get(d.id) ?? null}
+              vpsMetricsLoading={
+                vpsExtras?.metricsLoading ?? false
+              }
             />
           </li>
         );
