@@ -2,19 +2,19 @@
 
 import { Activity, Loader2 } from "lucide-react";
 
-import { fmtBytes, type VpsMetrics } from "@/lib/useVpsMetrics";
+import { type VpsMetrics } from "@/lib/useVpsMetrics";
 
 /** Live load strip on a GPU-VPS card.
  *
  * Single question the SV is trying to answer: "máy này load được model của em
- * không?" — that's a VRAM question, not a GPU-util question. A model that's
- * already loaded but idle (GPU 0 %, VRAM 47/48) blocks new users even though
- * util says "rỗi", so we tier on **free VRAM** and surface util/temp/processes
- * in the sidebar where someone who's already blocking the box can act on them.
+ * không?" — that's a VRAM question. We tier on **free VRAM** and surface
+ * util/temp/processes in the sidebar where someone already holding a block
+ * can act on them.
  *
- * Header reads as a sentence ("Còn 42 GB VRAM trống") so a glancing student
- * doesn't need to parse a chip + number into meaning. Two cells below show
- * VRAM and disk used/total with bars — same pattern, same reading direction.
+ * Disk intentionally omitted: on co-located VPS (ai01/02/03 share host
+ * bcseserver1) `df /home` returns the host's filesystem, not the per-VPS
+ * quota, so the live number would contradict the card's declared `disk_gb`
+ * spec and confuse SVs. The static spec tile keeps the nominal quota.
  */
 export function VpsMetricsBadge({
   metrics,
@@ -61,11 +61,6 @@ export function VpsMetricsBadge({
   const vramTotalGb = gpu.vram_total_mb / 1024;
   const vramFreeGb = vramTotalGb - vramUsedGb;
   const vramUsedPct = Math.round((gpu.vram_used_mb / gpu.vram_total_mb) * 100);
-
-  const diskFree = metrics.disk?.free_bytes ?? 0;
-  const diskTotal = metrics.disk?.total_bytes ?? 0;
-  const diskUsedPct =
-    diskTotal > 0 ? Math.round(((diskTotal - diskFree) / diskTotal) * 100) : 0;
 
   // Tier on free VRAM, not used%. A 7B model needs ~6 GB, a 13B needs
   // ~10 GB — picking 8 GB as the "comfortable" cutoff aligns with the
@@ -122,24 +117,13 @@ export function VpsMetricsBadge({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Cell
-          label="VRAM"
-          big={`${vramUsedGb.toFixed(1)} / ${vramTotalGb.toFixed(0)} GB`}
-          sub="đã dùng"
-          pct={vramUsedPct}
-          barColor={tone.bar}
-        />
-        {metrics.disk && (
-          <Cell
-            label="Ổ /home"
-            big={`${fmtBytes(diskTotal - diskFree)} / ${fmtBytes(diskTotal)}`}
-            sub={`còn ${fmtBytes(diskFree)}`}
-            pct={diskUsedPct}
-            barColor={diskUsedPct >= 80 ? "bg-rose-500" : diskUsedPct >= 50 ? "bg-amber-500" : "bg-emerald-500"}
-          />
-        )}
-      </div>
+      <Cell
+        label="VRAM"
+        big={`${vramUsedGb.toFixed(1)} / ${vramTotalGb.toFixed(0)} GB`}
+        sub="đã dùng"
+        pct={vramUsedPct}
+        barColor={tone.bar}
+      />
     </div>
   );
 }
