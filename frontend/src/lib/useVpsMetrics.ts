@@ -23,6 +23,9 @@ export type VpsMetrics = {
     total_bytes: number;
     free_bytes: number;
   } | null;
+  /** Bytes used in the VPS user's own $HOME (du, not df) — the real
+   *  footprint against the 300 GB quota on shared-host VPS. */
+  home_used_bytes: number | null;
   processes: { pid: number; vram_mb: number; name: string }[];
 };
 

@@ -118,6 +118,17 @@ def test_parse_processes_empty() -> None:
     assert svc._parse_processes("") == []
 
 
+def test_parse_home_used_valid() -> None:
+    assert svc._parse_home_used("1825361100\n") == 1825361100
+    assert svc._parse_home_used("0") == 0
+
+
+def test_parse_home_used_garbage() -> None:
+    assert svc._parse_home_used("") is None
+    assert svc._parse_home_used("du: cannot access") is None
+    assert svc._parse_home_used("12.5G") is None  # not raw bytes
+
+
 # ---------- mock-mode service path ------------------------------------------
 
 

@@ -94,6 +94,12 @@ class VpsMetrics:
     gpu: GpuSnapshot | None = None
     disk: DiskSnapshot | None = None
     processes: list[GpuProcess] = field(default_factory=list)
+    # Actual bytes used inside the VPS's own data space ($HOME of the SSH
+    # user) — measured with `du`, NOT `df`. On co-located VPS (ai01/02/03
+    # share one ext4 host filesystem) `df` reports the whole 1.8 TB host;
+    # `du $HOME` is the only ground-truth for "how much is this VPS using
+    # of its 300 GB quota". None when the du probe failed/timed out.
+    home_used_bytes: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -182,6 +188,13 @@ _GPU_QUERY = (
     "temperature.gpu --format=csv,noheader,nounits"
 )
 _DISK_QUERY = "df -B1 --output=avail,size,target /home | tail -n 1"
+# Bytes used inside the SSH user's own home — the VPS's real footprint
+# against its quota. `-x` stays on one filesystem (don't descend into
+# bind-mounts); `$HOME` is correct because we SSH in AS the VPS user.
+_HOME_DU_QUERY = 'du -sbx "$HOME" 2>/dev/null | cut -f1'
+# du can be slow on a home with hundreds of GB — give it more headroom
+# than the other near-instant queries. Cache TTL (25 s) absorbs the cost.
+HOME_DU_TIMEOUT_SECONDS = 20
 _PROC_QUERY = (
     "nvidia-smi --query-compute-apps=pid,used_memory,process_name "
     "--format=csv,noheader,nounits"
@@ -230,6 +243,13 @@ def _parse_disk(stdout: str) -> DiskSnapshot | None:
         return None
 
 
+def _parse_home_used(stdout: str) -> int | None:
+    line = stdout.strip().splitlines()[0] if stdout.strip() else ""
+    if not line or not line.isdigit():
+        return None
+    return int(line)
+
+
 def _parse_processes(stdout: str) -> list[GpuProcess]:
     out: list[GpuProcess] = []
     for raw in stdout.strip().splitlines():
@@ -270,6 +290,7 @@ def _mock_snapshot(device_id: str) -> VpsMetrics:
             free_bytes=int((500 - rng.randint(50, 400)) * 1024**3),
             used_bytes=0,
         ),
+        home_used_bytes=rng.randint(5, 280) * 1024**3,
         processes=[
             GpuProcess(pid=1000 + i, vram_mb=rng.randint(512, 8192), name=name)
             for i, name in enumerate(rng.sample(
@@ -312,10 +333,11 @@ async def _ssh_probe(
         ) as conn:
             # Run the three queries concurrently on one connection. asyncssh
             # multiplexes them over the same TCP socket → ~1 RTT.
-            gpu_r, disk_r, proc_r = await asyncio.gather(
+            gpu_r, disk_r, proc_r, home_r = await asyncio.gather(
                 conn.run(_GPU_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
                 conn.run(_DISK_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
                 conn.run(_PROC_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
+                conn.run(_HOME_DU_QUERY, check=False, timeout=HOME_DU_TIMEOUT_SECONDS),
                 return_exceptions=True,
             )
     except (asyncssh.Error, OSError, TimeoutError) as e:
@@ -336,6 +358,7 @@ async def _ssh_probe(
         gpu=_parse_gpu(_stdout(gpu_r)),
         disk=_parse_disk(_stdout(disk_r)),
         processes=_parse_processes(_stdout(proc_r)),
+        home_used_bytes=_parse_home_used(_stdout(home_r)),
     )
 
 
@@ -396,4 +419,5 @@ def _hydrate(raw: dict[str, Any]) -> VpsMetrics:
         gpu=GpuSnapshot(**gpu) if gpu else None,
         disk=DiskSnapshot(**disk) if disk else None,
         processes=[GpuProcess(**p) for p in procs],
+        home_used_bytes=raw.get("home_used_bytes"),
     )

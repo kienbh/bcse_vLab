@@ -131,41 +131,25 @@ export function VpsMetricsBadge({
           pct={vramUsedPct}
           barColor={tone.bar}
         />
-        {diskQuotaGb && diskQuotaGb > 0 && metrics.disk ? (
+        {diskQuotaGb && diskQuotaGb > 0 && metrics.home_used_bytes != null ? (
           (() => {
-            const totalGb = metrics.disk.total_bytes / 1024 ** 3;
-            const usedGb =
-              (metrics.disk.total_bytes - metrics.disk.free_bytes) / 1024 ** 3;
-            // Two cases:
-            // - Solo VPS (sv21..sv33): each LXC has its own filesystem so
-            //   `df` total ≈ quota. Denominator = quota (matches the spec
-            //   tile), numerator = real `df` used.
-            // - Shared host (ai01/02/03): cùng 1 ổ vật lý 1.8 TB. There's
-            //   no per-VPS used we can derive from `df`; show the host's
-            //   real numbers with a "chia với host" subtitle so the SV
-            //   knows this is shared and not the per-VPS quota.
-            const isSharedHost = totalGb > diskQuotaGb * 1.5;
-            if (isSharedHost) {
-              const pct = Math.round((usedGb / totalGb) * 100);
-              const color =
-                pct >= 80 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : "bg-emerald-500";
-              return (
-                <Cell
-                  label="Storage (host)"
-                  big={`${usedGb.toFixed(0)} / ${totalGb.toFixed(0)} GB`}
-                  sub={`chia với host · quota ${diskQuotaGb} GB`}
-                  pct={pct}
-                  barColor={color}
-                />
-              );
-            }
-            const pct = Math.round((usedGb / diskQuotaGb) * 100);
+            // Used = `du $HOME` (real data in THIS VPS's space), measured
+            // by SSHing in as the VPS user — correct even when ai01/02/03
+            // share one host filesystem. Denominator = the declared quota,
+            // matching the spec tile. This is exactly "đã dùng / 300 GB".
+            const usedGb = metrics.home_used_bytes / 1024 ** 3;
+            const pct = Math.min(
+              100,
+              Math.round((usedGb / diskQuotaGb) * 100),
+            );
             const color =
               pct >= 80 ? "bg-rose-500" : pct >= 50 ? "bg-amber-500" : "bg-emerald-500";
+            const usedLabel =
+              usedGb >= 10 ? usedGb.toFixed(0) : usedGb.toFixed(1);
             return (
               <Cell
                 label="Storage"
-                big={`${usedGb.toFixed(0)} / ${diskQuotaGb} GB`}
+                big={`${usedLabel} / ${diskQuotaGb} GB`}
                 sub="đã dùng / cấp phát"
                 pct={pct}
                 barColor={color}
