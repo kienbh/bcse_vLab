@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
+import { BookOpen, Cog, Cpu, Database, Gauge, Inbox, Loader2, LogIn, RefreshCw, Rocket, Server, Sparkles, Zap } from "lucide-react";
 
 import { BlockCalendarModal } from "@/components/BlockCalendarModal";
 import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/BookingModal";
@@ -642,6 +642,17 @@ function renderByTier(
                   </p>
                 )}
               </div>
+              {/* GPU tier: surface the how-to guide right where new SVs pick a
+                  GPU box, so they don't have to hunt for connection/train docs. */}
+              {tk === "gpu" && (
+                <Link
+                  href="/help/gpu-guide"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/20 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white shadow-md ring-2 ring-white/40 backdrop-blur-sm transition hover:bg-white/30"
+                >
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Hướng dẫn dùng GPU
+                </Link>
+              )}
               <span
                 className={`inline-flex shrink-0 items-center gap-1 rounded-full ${meta.badgeBg} px-3 py-1 text-xs font-bold uppercase tracking-wide shadow-md ring-2 ring-white/40`}
               >
