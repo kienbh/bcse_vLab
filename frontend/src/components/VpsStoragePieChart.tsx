@@ -6,6 +6,10 @@ import { fmtBytes, type VpsMetrics } from "@/lib/useVpsMetrics";
 
 /** Threshold at which a slice is considered "gần đầy" and turns warning-red. */
 const NEAR_FULL_PCT = 80;
+/** Threshold at which a slice has exceeded its declared quota entirely —
+ *  quota here is a soft/logical limit (not an enforced filesystem quota),
+ *  so `du $HOME` can legitimately read past 100 %. */
+const OVER_QUOTA_PCT = 100;
 
 type Slice = {
   key: string;
@@ -72,6 +76,9 @@ export function VpsStoragePieChart({
   const anyNearFull = slices.some(
     (s) => s.totalBytes > 0 && (s.usedBytes / s.totalBytes) * 100 >= NEAR_FULL_PCT,
   );
+  const anyOverQuota = slices.some(
+    (s) => s.totalBytes > 0 && (s.usedBytes / s.totalBytes) * 100 >= OVER_QUOTA_PCT,
+  );
 
   return (
     <div className="surface flex flex-col gap-4 p-5">
@@ -92,24 +99,28 @@ export function VpsStoragePieChart({
         <ul className="flex flex-1 flex-col gap-2">
           {slices.map((s) => {
             const pct = s.totalBytes > 0 ? Math.round((s.usedBytes / s.totalBytes) * 100) : 0;
+            const overQuota = pct >= OVER_QUOTA_PCT;
             const nearFull = pct >= NEAR_FULL_PCT;
             return (
               <li key={s.key} className="flex items-center gap-2 text-xs">
                 <span
                   className="h-2.5 w-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: nearFull ? "#e11d48" : s.color }}
+                  style={{ backgroundColor: overQuota ? "#9f1239" : nearFull ? "#e11d48" : s.color }}
                 />
                 <span className="min-w-0 flex-1 truncate font-semibold text-slate-700 dark:text-slate-200">
                   {s.label}
                 </span>
                 <span
                   className={`shrink-0 font-mono ${
-                    nearFull
-                      ? "font-bold text-rose-600 dark:text-rose-400"
-                      : "text-slate-500 dark:text-slate-400"
+                    overQuota
+                      ? "font-extrabold text-rose-800 dark:text-rose-300"
+                      : nearFull
+                        ? "font-bold text-rose-600 dark:text-rose-400"
+                        : "text-slate-500 dark:text-slate-400"
                   }`}
                 >
-                  {fmtBytes(s.usedBytes)} / {fmtBytes(s.totalBytes)} ({pct}%)
+                  {fmtBytes(s.usedBytes)} / {fmtBytes(s.totalBytes)} ({pct}%
+                  {overQuota ? " — vượt quota" : ""})
                 </span>
               </li>
             );
@@ -121,7 +132,11 @@ export function VpsStoragePieChart({
         <div className="flex items-start gap-2 rounded-md border border-rose-300 bg-rose-50 px-3 py-2.5 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-200">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            <span className="font-bold">Ổ cứng sắp đầy (≥{NEAR_FULL_PCT}%).</span>{" "}
+            <span className="font-bold">
+              {anyOverQuota
+                ? "Ổ cứng đã vượt quota cho phép."
+                : `Ổ cứng sắp đầy (≥${NEAR_FULL_PCT}%).`}
+            </span>{" "}
             Vui lòng sao lưu / tải dữ liệu quan trọng về máy cá nhân ngay.
             Nếu máy chủ được reset khi ổ cứng đầy hoặc hết block, <span className="font-bold">chúng tôi không chịu trách nhiệm khôi phục lại dữ liệu đã mất</span>.
           </p>
@@ -149,9 +164,11 @@ function PieChart({ slices }: { slices: Slice[] }) {
         const r = size / 2 - stroke / 2 - i * (stroke + gap);
         if (r <= 0) return null;
         const circumference = 2 * Math.PI * r;
-        const pct = s.totalBytes > 0 ? Math.min(1, s.usedBytes / s.totalBytes) : 0;
+        const rawPct = s.totalBytes > 0 ? s.usedBytes / s.totalBytes : 0;
+        const pct = Math.min(1, rawPct);
         const dash = circumference * pct;
-        const nearFull = pct * 100 >= NEAR_FULL_PCT;
+        const overQuota = rawPct * 100 >= OVER_QUOTA_PCT;
+        const nearFull = rawPct * 100 >= NEAR_FULL_PCT;
         return (
           <g key={s.key} transform={`rotate(-90 ${cx} ${cy})`}>
             <circle
@@ -168,7 +185,7 @@ function PieChart({ slices }: { slices: Slice[] }) {
               cy={cy}
               r={r}
               fill="none"
-              stroke={nearFull ? "#e11d48" : s.color}
+              stroke={overQuota ? "#9f1239" : nearFull ? "#e11d48" : s.color}
               strokeWidth={stroke}
               strokeDasharray={`${dash} ${circumference - dash}`}
               strokeLinecap="round"

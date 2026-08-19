@@ -402,19 +402,6 @@ function FamilyInner({
         </div>
       ) : (
         <>
-          {/* Storage overview for the GPU tier — 3 slots + shared physical
-              disk, warns at ≥80% full since there's no snapshot/restore for
-              this tier (see vps_admin.py). Sits above everything else so
-              it's the first thing a returning SV sees. */}
-          {family === "vps" &&
-            (() => {
-              const gpuDevices = devices.filter((d) => d.capabilities?.tier === "gpu");
-              if (gpuDevices.length === 0) return null;
-              return (
-                <VpsStoragePieChart devices={gpuDevices} metricsById={metricsById} />
-              );
-            })()}
-
           {/* M6.5 — sidebar live-metrics dashboard for the GPU-VPS the SV
               is currently blocking. Sits above the device grid so it's the
               first thing they see when returning to the tab. Only renders
@@ -674,6 +661,17 @@ function renderByTier(
                 {count} máy
               </span>
             </div>
+            {/* Storage overview — right under the GPU tier header, since
+                there's no snapshot/restore for this tier (cleanup_vps wipes
+                $HOME with no recovery). Warns at ≥80% full per slot/host. */}
+            {tk === "gpu" && vpsExtras && (
+              <div className="px-4 pt-4 md:px-5 md:pt-5">
+                <VpsStoragePieChart
+                  devices={groups.get(tk)!}
+                  metricsById={vpsExtras.metricsById}
+                />
+              </div>
+            )}
             {/* Cards inside the panel — extra padding so they breathe inside the tint */}
             <div className="p-4 md:p-5">{grid(groups.get(tk)!)}</div>
           </section>
