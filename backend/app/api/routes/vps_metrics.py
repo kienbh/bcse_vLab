@@ -71,11 +71,13 @@ async def list_metrics(
         return {"tier": tier, "metrics": []}
 
     async def _one(d: Device) -> dict:
+        gpu_index = (d.capabilities or {}).get("gpu_index")
         snap = await get_metrics(
             device_id=d.id,
             internal_ip=str(d.internal_ip),
             ssh_port=d.ssh_port,
             ssh_user=d.ssh_user,
+            gpu_index=gpu_index if isinstance(gpu_index, int) else None,
         )
         return snap.to_dict()
 
@@ -119,10 +121,12 @@ async def device_metrics(
                 detail={"code": "ACCESS_DENIED"},
             )
 
+    gpu_index = (device.capabilities or {}).get("gpu_index")
     snap = await get_metrics(
         device_id=device.id,
         internal_ip=str(device.internal_ip),
         ssh_port=device.ssh_port,
         ssh_user=device.ssh_user,
+        gpu_index=gpu_index if isinstance(gpu_index, int) else None,
     )
     return snap.to_dict()

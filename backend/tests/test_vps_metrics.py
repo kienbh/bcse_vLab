@@ -129,6 +129,37 @@ def test_parse_home_used_garbage() -> None:
     assert svc._parse_home_used("12.5G") is None  # not raw bytes
 
 
+# ---------- GPU index scoping -------------------------------------------------
+# Regression coverage: ai01/ai02/ai03 share one bare-metal host
+# (bcseserver1, 3x RTX 6000 Ada). Without `--id=N`, `nvidia-smi` lists every
+# GPU on the box and _parse_gpu always reads line 0 — so every slot showed
+# ai01's load regardless of who actually held that VRAM. CUDA_VISIBLE_DEVICES
+# in each SSH user's .bashrc doesn't help: asyncssh's non-interactive
+# conn.run() doesn't source login-shell rc files.
+
+
+def test_gpu_query_scopes_to_index_when_given() -> None:
+    q = svc._gpu_query(1)
+    assert "--id=1" in q
+    assert "--query-gpu=" in q
+
+
+def test_gpu_query_omits_id_flag_when_index_unknown() -> None:
+    q = svc._gpu_query(None)
+    assert "--id=" not in q
+
+
+def test_proc_query_scopes_to_index_when_given() -> None:
+    q = svc._proc_query(2)
+    assert "--id=2" in q
+    assert "--query-compute-apps=" in q
+
+
+def test_proc_query_omits_id_flag_when_index_unknown() -> None:
+    q = svc._proc_query(None)
+    assert "--id=" not in q
+
+
 # ---------- mock-mode service path ------------------------------------------
 
 

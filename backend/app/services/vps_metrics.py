@@ -183,10 +183,24 @@ async def _cache_set(device_id: str, payload: dict[str, Any]) -> None:
 # SSH probes
 # ---------------------------------------------------------------------------
 
-_GPU_QUERY = (
-    "nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,"
-    "temperature.gpu --format=csv,noheader,nounits"
-)
+
+def _gpu_query(gpu_index: int | None) -> str:
+    # `--id=N` scopes nvidia-smi to one physical GPU. Without it, a
+    # multi-GPU host (ai01/ai02/ai03 share bcseserver1's 3x RTX 6000 Ada)
+    # returns one CSV line per GPU and we'd silently read GPU 0 for every
+    # slot — see the incident where ai02/ai03 both showed ai01's load.
+    # CUDA_VISIBLE_DEVICES in the SSH user's .bashrc does NOT help here:
+    # asyncssh's non-interactive `conn.run()` doesn't source login-shell
+    # rc files, so the pin from /etc/profile.d/vlab-gpu-pin.sh never
+    # applies. `--id` is passed explicitly instead, sourced from
+    # device.capabilities.gpu_index (DB), independent of shell init.
+    id_flag = f"--id={gpu_index} " if gpu_index is not None else ""
+    return (
+        f"nvidia-smi {id_flag}--query-gpu=name,utilization.gpu,memory.used,memory.total,"
+        "temperature.gpu --format=csv,noheader,nounits"
+    )
+
+
 _DISK_QUERY = "df -B1 --output=avail,size,target /home | tail -n 1"
 # Bytes used inside the SSH user's own home — the VPS's real footprint
 # against its quota. `-x` stays on one filesystem (don't descend into
@@ -195,10 +209,17 @@ _HOME_DU_QUERY = 'du -sbx "$HOME" 2>/dev/null | cut -f1'
 # du can be slow on a home with hundreds of GB — give it more headroom
 # than the other near-instant queries. Cache TTL (25 s) absorbs the cost.
 HOME_DU_TIMEOUT_SECONDS = 20
-_PROC_QUERY = (
-    "nvidia-smi --query-compute-apps=pid,used_memory,process_name "
-    "--format=csv,noheader,nounits"
-)
+
+
+def _proc_query(gpu_index: int | None) -> str:
+    # Same scoping issue as _gpu_query — without --id this lists compute
+    # processes across every GPU on the host, so a co-located slot would
+    # see (and misattribute) another slot's process list.
+    id_flag = f"--id={gpu_index} " if gpu_index is not None else ""
+    return (
+        f"nvidia-smi {id_flag}--query-compute-apps=pid,used_memory,process_name "
+        "--format=csv,noheader,nounits"
+    )
 
 
 def _parse_gpu(stdout: str) -> GpuSnapshot | None:
@@ -306,6 +327,7 @@ async def _ssh_probe(
     internal_ip: str,
     ssh_port: int,
     ssh_user: str,
+    gpu_index: int | None,
 ) -> VpsMetrics:
     """One SSH session, three commands, parsed into a snapshot.
 
@@ -334,9 +356,9 @@ async def _ssh_probe(
             # Run the three queries concurrently on one connection. asyncssh
             # multiplexes them over the same TCP socket → ~1 RTT.
             gpu_r, disk_r, proc_r, home_r = await asyncio.gather(
-                conn.run(_GPU_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
+                conn.run(_gpu_query(gpu_index), check=False, timeout=SSH_TIMEOUT_SECONDS),
                 conn.run(_DISK_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
-                conn.run(_PROC_QUERY, check=False, timeout=SSH_TIMEOUT_SECONDS),
+                conn.run(_proc_query(gpu_index), check=False, timeout=SSH_TIMEOUT_SECONDS),
                 conn.run(_HOME_DU_QUERY, check=False, timeout=HOME_DU_TIMEOUT_SECONDS),
                 return_exceptions=True,
             )
@@ -372,6 +394,7 @@ async def get_metrics(
     internal_ip: str,
     ssh_port: int,
     ssh_user: str,
+    gpu_index: int | None = None,
 ) -> VpsMetrics:
     """Return a cached snapshot, fetching via SSH on cache miss.
 
@@ -401,6 +424,7 @@ async def get_metrics(
                 internal_ip=internal_ip,
                 ssh_port=ssh_port,
                 ssh_user=ssh_user,
+                gpu_index=gpu_index,
             )
         await _cache_set(did, snap.to_dict())
         return snap
