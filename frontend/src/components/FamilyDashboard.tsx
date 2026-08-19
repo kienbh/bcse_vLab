@@ -9,6 +9,7 @@ import { BookingModal, SessionLaunchModal, SessionResult } from "@/components/Bo
 import { CameraPanel } from "@/components/CameraPanel";
 import { Device, DeviceCard, DeviceFamily } from "@/components/DeviceCard";
 import { VpsMetricsSidebar } from "@/components/VpsMetricsSidebar";
+import { VpsStoragePieChart } from "@/components/VpsStoragePieChart";
 import { apiGet, useUser } from "@/lib/auth";
 import { useVpsMetricsBulk } from "@/lib/useVpsMetrics";
 
@@ -401,6 +402,19 @@ function FamilyInner({
         </div>
       ) : (
         <>
+          {/* Storage overview for the GPU tier — 3 slots + shared physical
+              disk, warns at ≥80% full since there's no snapshot/restore for
+              this tier (see vps_admin.py). Sits above everything else so
+              it's the first thing a returning SV sees. */}
+          {family === "vps" &&
+            (() => {
+              const gpuDevices = devices.filter((d) => d.capabilities?.tier === "gpu");
+              if (gpuDevices.length === 0) return null;
+              return (
+                <VpsStoragePieChart devices={gpuDevices} metricsById={metricsById} />
+              );
+            })()}
+
           {/* M6.5 — sidebar live-metrics dashboard for the GPU-VPS the SV
               is currently blocking. Sits above the device grid so it's the
               first thing they see when returning to the tab. Only renders
