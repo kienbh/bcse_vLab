@@ -478,16 +478,21 @@ function MaintenancePanel({ vpsList }: { vpsList: Device[] }) {
 
   const runCleanup = async (device: Device, force: boolean) => {
     const target = device.name;
-    const ok = window.confirm(
+    const typed = window.prompt(
       `Reset VPS ${target}?\n\n` +
         `Sẽ XÓA TOÀN BỘ:\n` +
-        `  • /home/${device.id ? "<user>" : ""} (giữ lại .ssh)\n` +
+        `  • /home/<user> (giữ lại .ssh)\n` +
         `  • /tmp\n` +
         `  • apt cache\n` +
         `  • Restart docker nếu đang chạy\n\n` +
-        `SV mất hết file. Đảm bảo họ đã backup.${force ? "\n\n⚠️ FORCE = sẽ chạy kể cả khi đang có SV active!" : ""}`,
+        `SV mất hết file, KHÔNG có backup/khôi phục. Đảm bảo đã thông báo & SV kịp tải dữ liệu về máy cá nhân.` +
+        `${force ? "\n\n⚠️ FORCE = sẽ chạy kể cả khi đang có SV active!" : ""}\n\n` +
+        `Gõ đúng tên thiết bị "${target}" để xác nhận:`,
     );
-    if (!ok) return;
+    if (typed !== target) {
+      if (typed !== null) window.alert(`Tên gõ không khớp "${target}" — đã huỷ.`);
+      return;
+    }
     setBusy(target);
     setResults((r) => ({ ...r, [target]: undefined as unknown as CleanupResult }));
     const r = await apiPost(`/vps-access/admin/${device.id}/cleanup${force ? "?force=true" : ""}`);
