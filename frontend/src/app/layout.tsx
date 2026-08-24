@@ -28,6 +28,7 @@ try {
             `,
           }}
         />
+        <script defer src="https://sv05.bcse-vju.com/script.js" data-website-id="443c38f1-0b6c-430d-80f2-eba6ee772fa1" />
       </head>
       <body className="flex min-h-screen flex-col antialiased">
         <TopNav />

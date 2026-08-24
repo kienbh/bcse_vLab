@@ -49,7 +49,7 @@ SV14_REMOTE = "/opt/vju-lab-portal"
 # Server Management/register_sv14_hardware_lab.py, persisted to app_secrets.json.
 # ADR-0014: replaces Authentik. Inject into SV14 .env.prod at deploy time so
 # the backend can verify HS256 id_tokens issued by bcse-id.
-APP_SECRETS_FILE = Path(r"C:\Users\Admin\Desktop\files\Server Management\app_secrets.json")
+APP_SECRETS_FILE = Path(r"D:\files\Server Management\app_secrets.json")
 
 DOMAIN_FULL = "sv14.bcse-vju.com"
 SUBDOMAIN = "sv14"

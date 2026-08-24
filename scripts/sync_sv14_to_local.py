@@ -19,7 +19,7 @@ import os, sys, posixpath, paramiko
 try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception: pass
 
-REPO_ROOT = r"c:\Users\Admin\Desktop\files\bcse vLab"
+REPO_ROOT = r"D:\files\bcse vLab"
 REMOTE = "/opt/vju-lab-portal"
 
 FILES = [

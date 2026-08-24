@@ -3,7 +3,7 @@ import os, sys, paramiko
 try: sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception: pass
 
-REPO = r"c:\Users\Admin\Desktop\files\bcse vLab"
+REPO = r"D:\files\bcse vLab"
 REMOTE = "/opt/vju-lab-portal"
 
 j = paramiko.SSHClient(); j.set_missing_host_key_policy(paramiko.AutoAddPolicy())
