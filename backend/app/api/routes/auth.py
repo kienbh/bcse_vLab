@@ -20,10 +20,12 @@ from app.api.deps import get_current_user, require_admin
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.security import (
+    REFRESH_COOKIE,
     clear_auth_cookies,
     issue_access_token,
     issue_refresh_token,
     set_auth_cookies,
+    verify_token,
 )
 from app.models import User, UserRole
 from app.models.quota import UserQuota
@@ -117,6 +119,45 @@ async def change_password(
     await db.commit()
     await db.refresh(user)
     return _user_dict(user)
+
+
+@router.post("/refresh")
+async def refresh(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Đổi refresh cookie lấy access token mới.
+
+    Frontend (lib/auth.ts) gọi endpoint này khi /auth/me hoặc apiGet/apiPost
+    gặp 401 — login đã phát refresh cookie từ đầu nhưng endpoint tiêu thụ nó
+    chưa từng tồn tại (bug 404, phát hiện sweep A3 25/8): tab mở quá TTL access
+    token là văng phiên dù refresh cookie còn hạn.
+    """
+    token = request.cookies.get(REFRESH_COOKIE)
+    if not token:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "NO_REFRESH_TOKEN"},
+        )
+    try:
+        payload = verify_token(token)
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "INVALID_REFRESH_TOKEN"},
+        ) from None
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "INVALID_REFRESH_TOKEN"},
+        )
+    user = await db.get(User, UUID(payload["sub"]))
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail={"code": "USER_INACTIVE"},
+        )
+    access = issue_access_token(sub=str(user.id), role=user.role.value)
+    new_refresh = issue_refresh_token(sub=str(user.id))
+    set_auth_cookies(response, access=access, refresh=new_refresh)
+    return {"status": "refreshed"}
 
 
 @router.get("/me")
