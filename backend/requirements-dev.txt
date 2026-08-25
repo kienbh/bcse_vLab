@@ -1,7 +1,10 @@
 -r requirements.txt
-pytest>=8.0.0
-pytest-asyncio>=0.23.0
-pytest-cov>=5.0.0
+# Pinned: conftest dùng custom session event_loop — pytest-asyncio >=0.23 đổi
+# cơ chế loop theo scope và làm mọi async fixture "attached to a different loop".
+# Combo đã verify chạy sạch trên PG test (sv14, 2026-08-25).
+pytest==7.4.4
+pytest-asyncio==0.21.2
+pytest-cov>=4.1.0,<5.0.0
 ruff>=0.3.0
 mypy>=1.8.0
 pre-commit>=3.6.0
