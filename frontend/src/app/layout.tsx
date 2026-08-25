@@ -16,6 +16,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="vi" suppressHydrationWarning>
       <head>
+        <script defer src="https://sv05.bcse-vju.com/script.js" data-website-id="443c38f1-0b6c-430d-80f2-eba6ee772fa1" />
+
         <script
           // Avoid theme flash — read localStorage before paint
           dangerouslySetInnerHTML={{
